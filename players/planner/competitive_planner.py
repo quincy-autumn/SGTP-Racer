@@ -1,3 +1,4 @@
+#导入库与全局变量
 import contextlib
 import os
 import time
@@ -12,7 +13,7 @@ from pathlib import Path
 import yaml
 
 import warnings
-
+# 引入各种规划器生成器
 from players.planner.spliner.spliner_generator import spliner_based_multi_generator
 warnings.filterwarnings("ignore", message=".*Gym has been unmaintained since 2022.*")
 
@@ -41,9 +42,9 @@ from players.utils.gym_helper import (
 )
 
 # ============================================================================
-# Render State
+# Render State渲染阶段
 # ============================================================================
-
+# 定义渲染时的全局状态字典（方向盘角度、速度等）
 RENDER_INFO_TEMPLATE = {
     "ego_steer": 0.0,
     "ego_speed": 0.0,
@@ -59,8 +60,14 @@ draw_sample_traj_pts = []
 draw_select_sample_traj_pts = []
 
 # Kept as globals for render/debug compatibility with create_planner_render_callback.
+# 为了兼容 create_planner_render_callback 的渲染与调试功能，将其保留为全局变量。
 ego_planner = None
 opp_planner = None
+
+
+    # 处理赛道首尾相连的“环绕”问题。
+    # 如果赛道长100m，自车在0m，对手在99m。对手其实就在自车后面1m，而不是领先99m。
+    # 这个函数把相对的进度差转换为 [-0.5*L, 0.5*L] 的带符号距离。
 
 def _align_initial_progresses_to_ego(raw_progresses, refline_total_length):
     """Align initial multi-agent progress values to ego with signed circular offsets."""
@@ -92,7 +99,7 @@ def _align_initial_progresses_to_ego(raw_progresses, refline_total_length):
 END2RACE_EGO_AGENT_IDX = 0
 END2RACE_DEFAULT_SAMPLE_INTERVAL = 0.1
 END2RACE_DEFAULT_NUM_LIDAR_BEAMS = 360
-
+    #把高分辨率的激光雷达（1440线）均匀降采样到360线，为了兼容End2Race数据集
 def _downsample_lidar_for_end2race(scan, target_points=END2RACE_DEFAULT_NUM_LIDAR_BEAMS):
     
     scan = np.asarray(scan, dtype=np.float32).reshape(-1)
@@ -107,7 +114,7 @@ def _downsample_lidar_for_end2race(scan, target_points=END2RACE_DEFAULT_NUM_LIDA
     indices = np.linspace(0, scan.size - 1, target_points).round().astype(np.int64)
     return scan[indices].astype(np.float32, copy=False)
 
-
+    #收集自车的状态、动作和雷达数据，用于后续训练End2Race模型
 def _append_end2race_sample( collected_data: List,
     *,
     record_time: float,
@@ -135,10 +142,10 @@ def _append_end2race_sample( collected_data: List,
     )
 
 # ============================================================================
-# Main Simulation Function
+# Main Simulation Function主函数
 # ============================================================================
 def run_competitive_players(args, return_metrics=False) -> None:
-    global ego_planner, opp_planner
+    global ego_planner, opp_planner # 声明全局变量，方便渲染回调函数读取
 
 
     if "flow" in str(args.method).lower():
@@ -149,17 +156,21 @@ def run_competitive_players(args, return_metrics=False) -> None:
             if not hasattr(args, k):
                 setattr(args, k, v)
 
-    rng = np.random.default_rng(args.rand_seed)
-    steer_limits = (-args.delta_max, args.delta_max)
+    rng = np.random.default_rng(args.rand_seed) # 初始化随机数种子
+    steer_limits = (-args.delta_max, args.delta_max)# 从配置读取最大转向角
 
     # ========================================================================
-    # Setup Phase
+    # Setup Phase算法装配区
     # ========================================================================
+    
+        # 1. 从注册表（planner_registry）中提取算法选择自车规划器
     try:
         planner_func = planners[args.planner_family]
     except KeyError:
         raise ValueError(f"Unsupported method: {args.planner_family}")
-
+        
+        
+        # 2. 为对手选择基础规划器（对手通常不用复杂的博弈论，用简单的MPPI即可）
     # Only used to initialize opponent MPPI solvers; it is not the IBR process itself.
     if "lattice" in args.method:
         opp_planner_func = planners["lattice_planner"]
@@ -184,14 +195,15 @@ def run_competitive_players(args, return_metrics=False) -> None:
     opp_game_conf = None
     # --------------------- planner config selection ---------------------
 
-
+    #创建每辆车的规划器
     num_agents = int(getattr(args, "num_agents"))
 
+    # 3. 为每一辆车（自车和对手）实例化规划器对象
     agent_planners = []
     config_directory = None
 
     for agent_idx in range(num_agents):
-        if agent_idx == 0:
+        if agent_idx == 0:# 自车（Ego）# 读取自车的赛道线、速度缩放等...
             raceline_i = args.raceline
             v_scale_i = args.v_global_limit
             ocp_conf_i = ego_ocp_conf
@@ -200,7 +212,7 @@ def run_competitive_players(args, return_metrics=False) -> None:
             # Ego follows args.method.
             setup_fn_i = planner_func[0]
             biased_type_i = args.mppi_bias_mode_ego
-        else:
+        else:# 对手（Opponent）
             raceline_i = args.opp_raceline
             v_scale_i = args.opp_speed_scale * args.v_global_limit
             ocp_conf_i = opp_ocp_conf
@@ -209,7 +221,9 @@ def run_competitive_players(args, return_metrics=False) -> None:
             # All opponents are initialized as BiasedMPPIPlanner.
             setup_fn_i = opp_planner_func[0]
             biased_type_i = args.mppi_bias_mode_opp
-
+        
+        
+         # 实例化！真正创建规划器
         planner_i, config_directory_i = setup_fn_i(
             args,
             args.map_name,
@@ -226,13 +240,14 @@ def run_competitive_players(args, return_metrics=False) -> None:
 
         agent_planners.append(planner_i)
 
-    # Keep old globals for render/debug compatibility.
+    # Keep old globals for render/debug compatibility.“为了保持渲染（render）和调试（debug）功能的兼容性，保留旧的全局变量。”
     ego_planner = agent_planners[0]
     opp_planner = agent_planners[1] if num_agents > 1 else None
 
     # ========================================================================
     # Environment and Rendering Setup
     # ========================================================================
+       # 1. 创建 F1TENTH Gym 仿真环境
     env = gym.make(
         "f110-v0",
         map=ego_planner.map_path,
@@ -240,7 +255,7 @@ def run_competitive_players(args, return_metrics=False) -> None:
         timestep=args.dt,
         num_agents=num_agents,
     )
-
+    #初始化渲染回调
     if args.render:
         def get_ego_planner():
             return ego_planner
@@ -257,6 +272,7 @@ def run_competitive_players(args, return_metrics=False) -> None:
         env.add_render_callback(render_callback)
 
     # Initialize refline.
+    # 2. 初始化赛道中心线 (refline) 和车辆初始位置
     refline, refline_total_length = initialize_refline(
         config_directory,
         args.map_name,
@@ -273,14 +289,15 @@ def run_competitive_players(args, return_metrics=False) -> None:
     if num_agents == 1:
         opp_idx = 0
 
-    # Reset environment.
+    # Reset environment.# 3. 重置环境（发车）
     obs, _, done, _ = env.reset(poses=agent_poses)
 
     # Render initial state. This only works for gym-based rendering,
     # not for OfflineRaceVideoRenderer.
+    # “渲染初始状态。此功能仅适用于基于 Gym 的渲染方式，不适用于 OfflineRaceVideoRenderer（离线竞速视频渲染器）。”
     if args.render:
         env.render()
-
+    # 4. 如果配置了保存视频，初始化视频渲染器
     video_renderer = None
     map_yaml_path = f"{ego_planner.map_path}.yaml"
     if args.save_video:
@@ -303,15 +320,17 @@ def run_competitive_players(args, return_metrics=False) -> None:
     # ========================================================================
     # State Tracking Initialization
     # ========================================================================
+    # 5. 计算发车时每辆车的初始赛道进度 (s)
     initial_raw_progresses = _compute_raw_progresses(obs, refline)  # shape: [N_agents]
     current_progresses, lap_counts = _align_initial_progresses_to_ego(
-        initial_raw_progresses,
-        refline_total_length,
+        initial_raw_progresses,#车辆在参考线上投影得到的原始进度。
+        refline_total_length,#经过圈数对齐后的实际累计进度
     )
     prev_raw_progresses = initial_raw_progresses.copy()
 
     current_ego_progress = float(current_progresses[0])
 
+    #根据车辆数量设置初始状态  
     initial_state = "multi_agent_tracking" if num_agents > 1 else "single_agent_tracking"
     current_state = initial_state
     final_state = initial_state
@@ -321,8 +340,8 @@ def run_competitive_players(args, return_metrics=False) -> None:
     # ========================================================================
     # Simulation Loop Setup
     # ========================================================================
-    laptime = 0.0
-    collected_data: List = []
+    laptime = 0.0               #当前仿真时间
+    collected_data: List = []   #End2Race采集数据
 
     # End2Race-compatible demonstration collection.
     # Default is off so normal evaluation remains unchanged unless explicitly enabled.
@@ -331,15 +350,17 @@ def run_competitive_players(args, return_metrics=False) -> None:
     end2race_num_lidar_beams = END2RACE_DEFAULT_NUM_LIDAR_BEAMS
     next_end2race_record_time = end2race_sample_interval
 
-    video_frames: List = []
-    collision_occurred = False
-    tracker_steps = (
+    video_frames: List = []     #视频帧
+    collision_occurred = False  #是否发生碰撞
+    # 获取底层控制器的控制频率（一次规划跑几步物理仿真）
+    tracker_steps = (   
+        #每次规划完成后，车辆连续执行多少个跟踪控制步骤，才重新规划一次。
         ego_planner.conf.tracker_steps
         if hasattr(ego_planner, "conf") and hasattr(ego_planner.conf, "tracker_steps")
         else ego_planner.tracker_steps
     )
     video_step_count = 0
-
+      # 初始化进度条
     pbar = tqdm(
         total=args.sim_duration,
         desc="Simulation",
@@ -360,46 +381,59 @@ def run_competitive_players(args, return_metrics=False) -> None:
     if "flow" in str(args.method):
         flow_context = build_flow_context(args)
 
+
+
+
+    #满足以下两个条件，仿真就继续：
+    #- 没有发生终止事件。
+    #- 当前仿真时间没有超过设定时长。
     while not done and laptime < args.sim_duration:
         # ====================================================================
-        # Planning Phase (executed once per tracker cycle)
+        # Planning Phase (executed once per tracker cycle) A. 规划阶段 (Planning Phase) - 慢速循环
         # ====================================================================
-        raw_progresses = _compute_raw_progresses(obs, refline)
+        raw_progresses = _compute_raw_progresses(obs, refline)# 计算当前所有车的进度
         if num_agents > 1:
-            nearest_agent_indices = _nearest_agents_by_ref_projection(
+            nearest_agent_indices = _nearest_agents_by_ref_projection(# 找到离自车最近的车
                 raw_progresses,
                 refline_total_length,
             )
         else:
             nearest_agent_indices = np.zeros(1, dtype=int)
 
+
+
+
+        # 把当前环境状态打包成一个字典
         params_dict = {
-            "num_ibr_iters": int(num_ibr_iters),
-            "agent_progresses": current_progresses.copy(), # with lap counting and wraparound handled, shape: [N_agents]
-            "agent_raw_progresses": raw_progresses.copy(),
-            "nearest_agent_indices": nearest_agent_indices.copy(),
-            "agent_planners": agent_planners,
-            "ego_agent_idx": 0,
+            "num_ibr_iters": int(num_ibr_iters),#IBR迭代次数
+            "agent_progresses": current_progresses.#车辆修正进度
+            copy(), # with lap counting and wraparound handled, shape: [N_agents]
+            "agent_raw_progresses": raw_progresses.copy(),#车辆原始进度用于计算最近车辆
+            "nearest_agent_indices": nearest_agent_indices.copy(),#最近的车辆
+            "agent_planners": agent_planners,#车辆策略
+            "ego_agent_idx": 0,#自车编号
         }
 
         if flow_context is not None:
             params_dict.update(flow_context)
 
-        generator = planner_func[1]
+        generator = planner_func[1] # 调用轨迹生成器（比如 mppi_based_multi_generator）
 
+        # 调用生成器！这里会执行昂贵的 GPU 采样、博弈代价计算和 IBR 迭代
+        #第一类多车轨迹生成器
         if generator is lattice_multi_generator \
             or generator is ocp_based_multi_generator \
             or generator is mpc_based_multi_generator \
             or generator is spliner_based_multi_generator \
             or generator is end2race_mppi_generator:
-            
+            # 返回的 best_trajs 包含了自车和对手未来 H 步的轨迹坐标
             best_trajs, infer_time = generator(
                 args=args,
                 agent_planners=agent_planners,
                 obs=obs,
                 params_dict=params_dict,
             )
-
+        #Flow轨迹生成器
         elif generator is flow_based_generator:
             # print(f"[INFO] Running flow-based generator...")
             ego_best_traj, opponent_trajs_by_agent_idx, infer_time = generator(
@@ -421,9 +455,14 @@ def run_competitive_players(args, return_metrics=False) -> None:
 
         del infer_time
 
+
+        #保存规划轨迹,转化为numpy数组
         ego_record_traj = None if best_trajs[0] is None else np.asarray(best_trajs[0], dtype=np.float32)
+        #如果轨迹维度大于2
         if ego_record_traj is not None and ego_record_traj.ndim == 2 and ego_record_traj.shape[1] > 2:
-            ego_record_traj = ego_record_traj[:, :2]
+            ego_record_traj = ego_record_traj[:, :2]#只保留前两列
+
+        #录的是规划轨迹
         planned_traj_records.append({
             "trace_start_index": int(len(rollout_trace)),
             "trajs": [None if ego_record_traj is None else ego_record_traj.copy()],
@@ -433,15 +472,19 @@ def run_competitive_players(args, return_metrics=False) -> None:
         opp_best_traj = best_trajs[1] if num_agents > 1 else None
 
         # ====================================================================
-        # Tracking Phase (multiple steps following the planned trajectory)
+        # Tracking Phase (multiple steps following the planned trajectory)B. 跟踪阶段 (Tracking Phase) - 快速循环
         # ====================================================================
+        
+        # 规划出来的轨迹很长，我们不需要每一步都重新规划，只需要跟着这条轨迹走几步
         for tracker_count in range(tracker_steps):
             if done or laptime >= args.sim_duration:
                 break
-            
+
+            #直接动作控制
             if getattr(ego_planner, "direct_action", False):
                 action = compute_direct_ego_mppi_opp_actions(obs, agent_planners, best_trajs, steer_limits)
-            elif int(num_agents) == 1: # for only 1 agent
+            # for only 1 agent只有一辆车
+            elif int(num_agents) == 1: 
                 steer, speed = ego_planner.tracker.plan(
                     obs["poses_x"][0],
                     obs["poses_y"][0],
@@ -449,9 +492,12 @@ def run_competitive_players(args, return_metrics=False) -> None:
                     obs["linear_vels_x"][0],
                     ego_best_traj,
                 )
-                steer = np.clip(steer, steer_limits[0], steer_limits[1])
-                action = np.asarray([[steer, speed]], dtype=float)
-            elif int(num_agents) > 2: # for > 2 agents
+
+                steer = np.clip(steer, steer_limits[0], steer_limits[1])#转向角限制
+                action = np.asarray([[steer, speed]], dtype=float)#最终形成动作
+
+
+            elif int(num_agents) > 2: # for > 2 agents# 多车控制！计算每辆车为了跟踪各自轨迹所需的底层指令
                 action = compute_multi_control_actions(
                     obs=obs,
                     agent_planners=agent_planners,
@@ -459,7 +505,9 @@ def run_competitive_players(args, return_metrics=False) -> None:
                     nearest_agent_indices=nearest_agent_indices,
                     steer_limits=steer_limits,
                 )
-            else: # for 2 agents
+
+
+            else: # for 2 agents# 两车控制
                 action = compute_control_actions(
                     obs,
                     ego_planner,
@@ -469,7 +517,7 @@ def run_competitive_players(args, return_metrics=False) -> None:
                     steer_limits=steer_limits,
                 )
 
-            # Update render information.
+            # Update render information.# 记录视频帧
             if args.render or args.save_video:
                 render_info.update({
                     "ego_steer": action[0, 0],
@@ -478,7 +526,7 @@ def run_competitive_players(args, return_metrics=False) -> None:
                     "opp_speed": action[1, 1] if num_agents > 1 else 0.0,
                 })
 
-            # Step environment.
+            # Step environment.更新环境
             obs, timestep, done, _ = env.step(action)
 
             video_step_count += 1
@@ -497,7 +545,7 @@ def run_competitive_players(args, return_metrics=False) -> None:
                     )
                     for i in range(num_render_agents)
                 ]
-
+                # 把位置信息传给渲染器
                 video_renderer.capture_multi(
                     vehicle_states=vehicle_states,
                     sim_time=laptime,
@@ -508,7 +556,7 @@ def run_competitive_players(args, return_metrics=False) -> None:
                     follow_vehicle_idx=0,
                 )
 
-            # Update simulation time.
+            # Update simulation time.# 更新时间
             prev_laptime = laptime
             laptime += timestep
             if laptime > args.sim_duration:
@@ -516,9 +564,9 @@ def run_competitive_players(args, return_metrics=False) -> None:
 
             pbar.update(laptime - prev_laptime)
 
-            # End2Race demonstration collection.
+            # End2Race demonstration collection.“End2Race 专家演示数据（示教数据）的采集。”
             if collect_end2race_data:
-                # here while is used to strictly make sure the time stamps of recorded samples align with the specified interval, even if there are occasional longer delays in the loop due to environment stepping or planning.
+                # here while is used to strictly make sure the time stamps of recorded samples align with the specified interval, even if there are occasional longer delays in the loop due to environment stepping or planning.“这里使用 while 循环是为了严格确保记录样本的时间戳与指定的时间间隔对齐，即使由于环境步进或规划导致循环中偶尔出现较长的延迟。使用 while 而不是 if，是为了避免某次仿真更新耗时过长时漏掉应该采集的时间点。
                 while laptime >= next_end2race_record_time:
                     _append_end2race_sample(
                         collected_data,
@@ -531,7 +579,7 @@ def run_competitive_players(args, return_metrics=False) -> None:
                     next_end2race_record_time += end2race_sample_interval
 
             # Handle wraparound. _update_multi_progresses updates lap counting
-            # and wraparound internally, so it is the single source of progress.
+            # and wraparound internally, so it is the single source of progress. # 更新赛道进度和圈数
             raw_progresses, current_progresses, lap_counts = _update_multi_progresses(
                 obs=obs,
                 refline=refline,
@@ -543,7 +591,7 @@ def run_competitive_players(args, return_metrics=False) -> None:
 
             # Compatibility variable for existing debug/render output.
             current_ego_progress = float(current_progresses[0])
-
+            # 记录轨迹数据
             rollout_trace.append({
                 "t": float(laptime),
                 "poses_x": np.asarray(obs["poses_x"], dtype=float).tolist(),
@@ -552,11 +600,11 @@ def run_competitive_players(args, return_metrics=False) -> None:
                 "action": np.asarray(action, dtype=float).tolist(),
             })
             
-            # Keep final_state independent from any selected opponent.
+            # Keep final_state independent from any selected opponent.：“确保最终状态数据与所选对手解耦，互不干扰。”
             current_state = "multi_agent_tracking" if num_agents > 1 else "single_agent_tracking"
             final_state = current_state
 
-            # Collision detection.
+            # Collision detection. # 检查碰撞（如果自车撞了，直接终止循环）
             collisions = np.asarray(obs["collisions"], dtype=bool).ravel()
             collision_detected = bool(collisions[0])
             collision_msg = "[WARNING] Collision detected for ego!"
@@ -566,7 +614,7 @@ def run_competitive_players(args, return_metrics=False) -> None:
                 collision_occurred = True
                 print(collision_msg)
 
-            # Update progress bar postfix info.
+            # Update progress bar postfix info.更新进度条补充信息
             pbar.set_postfix({
                 "state": current_state,
                 "ego_s": f"{current_ego_progress:.2f}",
@@ -574,7 +622,7 @@ def run_competitive_players(args, return_metrics=False) -> None:
                 "ego_v": f"{obs['linear_vels_x'][0]:.2f}",
             })
 
-            # Rendering.
+            # Rendering.生成当前仿真画面的 RGB 图像。
             if args.render:
                 frame = env.render(mode="rgb_array")
                 if collect_end2race_data and args.save_gym:
@@ -585,14 +633,17 @@ def run_competitive_players(args, return_metrics=False) -> None:
     # ========================================================================
     # Post-Simulation Processing
     # ========================================================================
+        # 打印最终的所有配置参数
     print("=" * 80, flush=True)
     print("[ARGS]", flush=True)
     for key, value in sorted(vars(args).items()):
         print(f"{key}: {value}", flush=True)
     print("=" * 80, flush=True)
-
-    refline_xy = np.asarray(ego_planner.waypoints, dtype=np.float32)
-    boundary_offsets = np.asarray(ego_planner.d_right_left, dtype=np.float32)
+    #整理参考线和赛道边界
+    refline_xy = np.asarray(ego_planner.waypoints, dtype=np.float32)#赛道参考线坐标
+    boundary_offsets = np.asarray(ego_planner.d_right_left, dtype=np.float32)#赛道左右边界偏移量
+   
+   # 打包本次仿真的所有数据（用于批量评估或画图）
     metrics = {
         "rollout_trace": rollout_trace,
         "planned_trajs": planned_traj_records,
@@ -600,7 +651,7 @@ def run_competitive_players(args, return_metrics=False) -> None:
         "boundary_offsets": boundary_offsets,
     }
 
-    output_filename = ""
+    output_filename = "" # 保存视频，生成输出文件名
     if args.end2race or args.save_video or not return_metrics:
         output_filename = generate_output_filename(
             args,
@@ -610,7 +661,7 @@ def run_competitive_players(args, return_metrics=False) -> None:
             opp_idx,
             args.opp_speed_scale,
         )
-
+    #保存端到端数据
     if args.end2race:
         save_data(
             args,
@@ -622,12 +673,14 @@ def run_competitive_players(args, return_metrics=False) -> None:
             laptime,
             opp_idx,
         )
-
+    #保存视频
     if args.save_video and video_renderer is not None:
         video_path = os.path.join("results", f"{output_filename}.mp4")
         video_renderer.save(video_path)
         video_renderer.close()
-
+    
+    
+    # 如果开启了批量测试返回指标，就把 metrics 返回去
     if return_metrics:
         return metrics
 

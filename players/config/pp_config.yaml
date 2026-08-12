@@ -1,14 +1,14 @@
-# Tracker Configuration (Pure Pursuit)
-tracker_steps: 1
-vel_scale: 1.0
+# Tracker Configuration (Pure Pursuit)纯跟踪
+tracker_steps: 1      #执行频率控制
+vel_scale: 1.0        #速度缩放系数
 
-# Pure Pursuit Specific Parameters
-minL: 0.5
-maxL: 2.0
-Lscale: 9.0
-minP: 0.7
-maxP: 1.0
-Pscale: 9.0
-D: 0.2
-interpScale: 15
+# Pure Pursuit Specific Parameters 
+minL: 0.5     #前视距离最小值
+maxL: 2.0     #前视距离最大值
+Lscale: 9.0   #速度与前视距离的缩放系数。（映射关系）
+minP: 0.7     #转向增益最小值
+maxP: 1.0     #转向增益最大值
+Pscale: 9.0   #速度与增益的缩放系数
+D: 0.2        #微分增益
+interpScale: 15 #轨迹插值精度
 

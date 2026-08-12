@@ -1,0 +1,452 @@
+3
+
+(B) Sampling-Based IBR for
+Game-Theoretic Planning
+
+(B1) Game-Aware Cost for Diverse Behaviors
+
+(B2) Feasibility Selection
+(1) Boundary Check
+
+Distance-based
+collision-free
+initialization
+
+(1) Contest
+Maintenance
+
+(2) Blocking
+Alignment
+(k )
+(k )
+cblock,
+ij = − block,ij (1 + d ij ,tail )
+
+(k )
+(k )
+ccontest,
+ij = − wcontest I ij , H
+
+(k )
+bi( k ) = [  bd,
+i  mbd ]
+
+−1
+
+Each vehicle 𝑖
+selects 𝝃∗ⅈ,𝑡
+from ranked
+rollouts
+
+(2) Collision Check
+
+Iteration
+
+Ego does an
+additional bestresponse update
+
+(A) Planning
+Inputs
+
+(A1) Current states 𝑥𝑖,𝑡 𝑖∈I
+
+(3) Progress
+Advantage
+(k )
+long,ij
+
+c
+
+= − wlong ij ,t s
+
+(k )
+ij ,t + H
+
+(4) Safety
+Margin
+(k )
+safety,ij
+
+c
+
+(k )
+
+= wsafety  max ( 0, gsafe − g min,
+ij ) 
+
+2
+
+(k )
+
+oi( k ) =  obs,
+i  d col 
+
+Selected trajectory
+Opponent Prediction
+Ego Candidate
+
+Contest Window
+Raceline
+
+(A2) Track and Raceline
+
+(A3) Warm-start control
+
+Sampled
+Rollout Cloud
+
+Execution
+
+Infeasible trajectory
+
+(C) Planned Joint Trajectories
+
+…
+
+Fig. 2: Proposed Sampling-Based Game-Theoretic Planning (SGTP) framework. SGTP first generates sampled rollouts
+and ranks them using a game-aware cost evaluated against opponent predictions. During IBR, each vehicle computes a best
+response, after which feasibility selection enforces the track-boundary and inter-vehicle collision-avoidance constraints. The
+ego vehicle then performs an additional best-response update.
+(k,ℓ)
+
+Here, ki⋆,ℓ denotes the selected candidate index, and hi
+=1
+indicates that candidate k satisfies both track-boundary and
+dynamic vehicle collision-avoidance constraints.
+The selected trajectory and control sequence warm start the
+next IBR iteration (line 11). After the prescribed number of
+iterations LIBR , the ego vehicle performs one additional bestresponse update with the final opponents’ predictions (line 14).
+III. S AMPLING -BASED G AME -T HEORETIC P LANNING
+As shown in Fig. 2, SGTP performs best-response planning
+by ranking rollouts (generated in parallel on the GPU) using a
+game-aware cost, and selecting the lowest-cost feasible rollout.
+A. Game-Aware Cost for Diverse Behaviors
+We compute our game-aware cost by evaluating a pairwise
+interaction term between each candidate trajectory and the
+predicted opponent trajectories. For the candidate trajectory
+(k,ℓ)
+ξi,t of vehicle i and the predicted trajectory of opponent j,
+the pairwise game-aware cost is defined as follows:
+(k)
+(k)
+(k)
+(k)
+(k)
+cgame,ij = ccontest,ij + clong,ij + cblock,ij + csafety,ij . (2)
+The four cost terms represent contest-state maintenance
+ccontest , longitudinal advantage clong , blocking alignment
+cblock , and safety separation csafety , respectively.
+The key design insight is to progressively shape the interaction through complementary cost terms: the contest term
+preserves rollouts that remain within a meaningful racing
+window, the longitudinal term promotes forward advantage,
+the blocking term encourages defensive positioning, and the
+safety term penalizes insufficient separation. The total gameaware cost for candidate k is obtained by summing the
+P
+(k)
+(k)
+pairwise costs over all opponents: cgame,i = j∈I−i cgame,ij ,
+allowing each opponent prediction to independently contribute
+to the ranking of candidate trajectories.
+
+1) Contest-State Maintenance Cost: The contest-state term
+rewards candidate trajectories whose terminal progress gaps
+relative to the predicted opponent trajectories remain within
+(k)
+the longitudinal interaction range. Let si,t+H denote the terminal Frenet progress of ego candidate k, and let ŝj,t+H denote
+the corresponding predicted progress of opponent j. The
+(k)
+pairwise terminal progress gaps are defined as: ∆sij,t+H =
+(k)
+si,t+H − ŝj,t+H . Based on these gaps, the contest indicator
+for candidate k and opponent
+j is:
+h
+i
+(k)
+
+(k)
+
+Iij,H = I |∆sij,t+H | < scontest ,
+
+where scontest denotes the longitudinal contest range. The
+corresponding pairwise contest-state cost is:
+(k)
+(k)
+ccontest,ij = −wcontest Iij,H .
+(3)
+where wcontest is a tunable weight. The core insight is to
+encourage sampled rollouts to interact closely with opponents’
+predicted trajectories within a meaningful competitive window.
+2) Longitudinal Advantage Cost: The longitudinal advantage term encourages candidate trajectories that achieve a
+terminal progress advantage over opponent j. It is defined as:
+(k)
+(k)
+clong,ij = −wlong αij,t ∆sij,t+H ,
+(4)
+(k)
+
+where wlong is a scalar weight, and ∆sij,t+H denotes the
+terminal progress gap. A larger positive terminal gap reduces
+the cost, thereby favoring candidates that move ahead of
+the opponent. The adaptive weight αij,t adjusts this progress
+reward according to the current interaction relevance:
+−1
+αij,t = 1 + |∆sij,t |(scontest + ϵ)−1
+.
+Here ϵ is a small positive constant. A larger αij,t assigns
+greater importance to terminal progress gains when the two
+vehicles are close. As their progress gap increases, αij,t
+decreases the reward due to weaker interaction relevance.
+
+4
+
+3) Blocking Alignment Cost: The blocking alignment term
+encourages candidate trajectories whose lateral positions align
+with the predicted position of opponent j near the end of the
+prediction horizon. Let Ttail denote the set of horizon indices
+within the final µtail portion of the prediction horizon. The
+mean lateral offsets of candidate k and opponent j over this
+final portion of the horizon are defined as follows:
+X (k)
+X
+1
+1
+(k)
+d¯i =
+di,t+τ , d¯j =
+dˆj,t+τ ,
+|Ttail |
+|Ttail |
+τ ∈Ttail
+
+τ ∈Ttail
+
+where dˆj,t+τ denotes the predicted lateral offset of opponent j.
+(k)
+(k)
+The corresponding tail lateral gap is: ∆dij,tail = d¯i − d¯j .
+Using this gap, the blocking alignment cost is formulated as:
+
+−1
+(k)
+(k)
+cblock,ij = −γblock,ij 1 + ∆dij,tail
+.
+(5)
+Here, γblock,ij = wblock I[∆sij,t > srole ] I[∆sij,t < scontest ]
+activates the blocking cost when vehicle i has a longitudinal
+advantage of at least srole while remaining within the contest
+range scontest , where ∆sij,t = si,t − ŝj,t . The scalar wblock is
+the weight. Such lateral alignment reduces the space available
+to the trailing vehicle and promotes defensive blocking.
+4) Safety Cost: The safety term penalizes candidate rollouts
+whose predicted separation from an opponent falls below the
+desired threshold gsafe . For candidate k and opponent j, the
+minimum time-aligned distance is:
+(k)
+
+gmin,ij =
+
+(k)
+
+pi,t+τ − p̂j,t+τ
+
+min
+
+τ =1,...,H
+
+,
+
+(6)
+
+2
+
+(k)
+
+where pi,t+τ and p̂j,t+τ denote the position associated with
+candidate k and the predicted position of opponent j at time
+t + τ , respectively. The corresponding pairwise safety cost is:
+h
+
+i2
+(k)
+(k)
+csafety,ij = wsafety max 0, gsafe − gmin,ij
+.
+(7)
+Here, wsafety is the corresponding scalar weight. This cost
+penalizes candidates whose minimum predicted separation
+falls below gsafe , and the penalty increases quadratically with
+the magnitude of the violation.
+5) Overall Game-Aware Rollout Ranking: In addition to
+the game-aware cost, each sampled rollout is evaluated using
+a nominal quadratic tracking and control cost relative to a
+reference trajectory derived from the arc-length-parameterized
+raceline G. For vehicle i, the reference progress sri,t+τ is
+propagated recursively along G using the associated reference
+velocity profile v r (s), starting from sri,t = si,t :
+sri,t+τ +1 = sri,t+τ + ∆t v r (sri,t+τ ), τ = 0, . . . , H − 1.
+The corresponding reference states are obtained as xri,t+τ =
+xr (sri,t+τ ). For each candidate rollout k, the nominal tracking
+and control cost is defined as:
+H
+X
+2
+(k)
+(k)
+ctrack,i =
+xi,t+τ − xri,t+τ
+τ =1
+H−1
+X
+
++
+
+(k)
+
+Q
+
+(k)
+ui,t+τ
+
+τ =0
+(k)
+
+2
+
++
+R
+
+H−1
+X
+τ =1
+
+(8)
+(k)
+∆ui,t+τ
+
+2
+
+.
+S
+
+(k)
+
+Here ∆ui,t+τ = ui,t+τ − ui,t+τ −1 , and Q, R, and S are
+weighting matrices. The total cost assigned to candidate k is:
+(k)
+
+(k)
+
+(k)
+
+ci = ctrack,i + wgame cgame,i .
+(9)
+Here, the weight wgame balances the influence of the gameaware cost against the nominal tracking and control cost.
+
+B. Feasibility Selection
+After batch cost evaluation, feasibility selection applies
+explicit track-boundary and inter-vehicle collision checks to
+the ranked candidates and selects the lowest-cost candidate
+that passes both checks.
+1) Track-Boundary Check: The track-boundary clearance
+of candidate k atprediction step τ is defined as follows: 
+(k)
+
+(k)
+
+(k)
+
+(k)
+
+(k)
+
+ρbd,i,t+τ = min wR(si,t+τ ) + di,t+τ , wL(si,t+τ ) − di,t+τ .
+The minimum boundary clearance over the prediction horizon
+(k)
+(k)
+is ρbd,i = minτ =1,...,H ρbd,i,t+τ . A candidate passes the trackboundary check if its minimum clearance remains above the
+required threshold mbd :
+ (k)
+
+(k)
+bi = I ρbd,i ≥ mbd .
+(10)
+2) Collision-Avoidance Check: The inter-vehicle collision
+check uses the time-aligned minimum-distance operator defined in (6). For candidate rollout k, the minimum clear(k)
+ance over all opponents is defined as follows: ρobs,i =
+(k)
+(k)
+minj∈I−i gmin,ij , where gmin,ij is given by (6). The candidate
+passes the collision-avoidance check if this minimum clearance remains above the collision
+threshold
+h
+i dcol :
+(k)
+
+oi
+
+(k)
+
+= I ρobs,i ≥ dcol .
+
+(11)
+
+ℓ
+After ranking the candidate trajectories in Ci,t
+according to the
+cost in (9), each candidate is marked as feasible if it passes
+both the track-boundary and collision-avoidance checks. The
+lowest-cost candidate that passes both feasibility checks is
+selected as the planned trajectory at IBR iteration ℓ:
+(k)
+
+(k)
+
+ki∗ = arg min ci , hi
+(k)
+k:hi =1
+
+(k)
+
+= bi
+
+(k)
+
+oi .
+
+(12)
+
+Feasibility selection complements cost-based rollout ranking: the composite cost ranks the candidates, whereas the
+boundary and collision checks determine which candidates
+satisfy the prescribed feasibility criteria. The selected control
+sequence is used to warm-start the next planning step. If no
+feasible candidate exists, a least-violation fallback strategy is
+invoked. The boundary and collision violations foreach can(k)
+(k)
+(k)
+didate are defined as: νbd,i = max 0, mbd − ρbd,i , νobs,i =
+
+(k)
+(k)
+max 0, dcol − ρobs,i , with the total violation given by νi =
+(k)
+(k)
+νbd,i + νobs,i . The fallback strategy selects the candidate with
+(k)
+the smallest combined violation: k ∗ = arg mink νi .
+IV. R ESULTS AND D ISCUSSION
+This section evaluates SGTP in long-duration, closed-loop
+competitive multi-vehicle racing scenarios. We compare SGTP
+with a range of representative baselines, conduct ablation
+studies to assess the contributions of the proposed modules,
+and validate its performance across challenging tracks. The
+evaluation focuses on competitiveness and real-time efficiency.
+A. Literature Benchmarks
+The proposed method is compared with eight literature
+benchmarks. These include a sampling-based lattice planner [27], the learning-based End2Race method in [9], and the
+conditional flow-matching (CFM) planner proposed in [10].
+End2Race [9] predicts control commands from past velocities
+and LiDAR inputs, whereas the CFM planner [10] generates
+
+

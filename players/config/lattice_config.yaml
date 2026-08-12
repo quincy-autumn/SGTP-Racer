@@ -1,4 +1,7 @@
-# Lattice Planner Parameters
+#时空栅格法Lattice 栅格规划器
+
+
+# Lattice Planner Parameters      
 lh_grid_lb: -0.3
 lh_grid_ub: 4.0
 traj_points: 25

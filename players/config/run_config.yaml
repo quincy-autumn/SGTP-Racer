@@ -1,3 +1,5 @@
+#单次实验总控
+
 # =====================================================================
 # Planner Selection
 # =====================================================================
@@ -12,12 +14,13 @@
 # Sampling-based Game-Theoretic Planning (SGTP), as proposed in the paper.
 # we need set the MPPI_POST_SELECT = True in `players/planner/planner_generators.py`,
 # otherwise it will be the same as standard MPPI.
-# 
+# #规划器选择  模型预测路径积分控制（Model Predictive Path Integral, MPPI）
 planner_family: "mppi"
+#迭代最佳响应
 interaction_mode: "ibr"
 
 # ---------------------------------------------------------------------
-# Lattice Planner
+# Lattice Planner#基于时空栅格的采样算法
 # ---------------------------------------------------------------------
 # Sampling-based spatiotemporal lattice planner operating in
 # non-reactive mode.
@@ -27,7 +30,7 @@ interaction_mode: "ibr"
 
 
 # ---------------------------------------------------------------------
-# Race Stack
+# Race Stack#基于规则/样条曲线的规划
 # ---------------------------------------------------------------------
 # Race Stack baseline using the spline-based planner implementation.
 #
@@ -36,7 +39,7 @@ interaction_mode: "ibr"
 
 
 # ---------------------------------------------------------------------
-# End2Race
+# End2Race#基于端到端深度学习
 # ---------------------------------------------------------------------
 # Learning-based End2Race planner operating in non-reactive mode.
 #
@@ -45,7 +48,7 @@ interaction_mode: "ibr"
 
 
 # ---------------------------------------------------------------------
-# Conditional Flow Matching
+# Conditional Flow Matching#CFM, 基于生成式模型
 # ---------------------------------------------------------------------
 # Conditional Flow-Matching (CFM) planner operating in non-reactive mode.
 #
@@ -54,7 +57,7 @@ interaction_mode: "ibr"
 
 
 # ---------------------------------------------------------------------
-# Standard MPPI / Biased-MPPI
+# Standard MPPI / Biased-MPPI#纯采样的预测控制
 # ---------------------------------------------------------------------
 # Standard Model Predictive Path Integral (MPPI) control without feasibility selection
 # we need set the MPPI_POST_SELECT = False in `players/planner/planner_generators.py`,
@@ -68,7 +71,7 @@ interaction_mode: "ibr"
 
 
 # ---------------------------------------------------------------------
-# EVO-MPCC / IBR with EVO-MPCC
+# EVO-MPCC / IBR with EVO-MPCC#基于非线性优化控制
 # ---------------------------------------------------------------------
 # EVO-MPCC used as the best-response solver within an Iterative Best
 # Response framework.
@@ -82,33 +85,32 @@ interaction_mode: "ibr"
 
 
 end2race: False # here is only used for end2race data collection, not for end2race planner
-ibr_time: 2 # number of iterations for IBR planner
-opp_speed_scale: 0.9 # scale down opponent speed
+ibr_time: 2 # number of iterations for IBR plannerIBR迭代次数
+opp_speed_scale: 0.9 # scale down opponent speed对手降速
 
 # config paths
-ocp_config: "players/config/ocp_config.yaml"
-config: "players/config/pp_config.yaml"
-game_config: "players/config/game_cost_config.yaml"
+ocp_config: "players/config/ocp_config.yaml" # MPPI
+config: "players/config/pp_config.yaml"      # 跟踪执行
+game_config: "players/config/game_cost_config.yaml" #博弈代价
 
-# vehicle params
+# vehicle params  车辆参数
 wheel_base: 0.307 
 length: 0.58
 width: 0.31
 v_max: 12.0
 a_max: 10.0
-delta_max: 0.4
+delta_max: 0.4   #最大转向角
 
-# other params
-eval_case_id: normal_single_eval
-collect_pairwise_rows: false # now is only used as a flag to disable tqdm progress bar for batch running
-raceline: "racing_line"
-dt: 0.01  # env dt, do not change to bigger
-v_global_limit: 0.7 # align with ros setting
-rand_seed: 6300
-mpc_dt: 0.05 # only for flow dt between two states
-render_margin: 800
-video_capture_every: 10
-out_fps: 10
+# other params 其他参数
+eval_case_id: normal_single_eval 
+collect_pairwise_rows: false            # now is only used as a flag to disable tqdm progress bar for batch running
+raceline: "racing_line"                 #赛车线
+dt: 0.01                                # env dt, do not change to bigger 仿真步长
+v_global_limit: 0.7                     # align with ros setting 全局速度限制与ROS保持一致
+rand_seed: 6300                         #随机种子
+mpc_dt: 0.05 # only for flow dt between two states MPC是时间步长  这是专门给对比基线 CFM（Conditional Flow Matching 生成式模型） 用的。生成式模型在推演轨迹时，需要离散化的积分步长。对于 SGTP 算法本身，这个参数用不到。
+render_margin: 800                      #渲染边距
+video_capture_every: 10                 #视频捕获频率
+out_fps: 10                             #输出视频帧率
 save_gym: false # it's an old flag to save gym video, not used anymore because it's time consuming, and the gym color is not my taste
-tracker_steps: 1
-
+tracker_steps: 1                        #跟踪器步数

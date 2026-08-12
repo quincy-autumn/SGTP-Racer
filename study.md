@@ -1,0 +1,4 @@
+run_multi_method.py
+run_config.yaml
+
+ocp_config算法制定环节，存疑，Q矩阵系数为4而不是论文中的60

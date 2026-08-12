@@ -1,6 +1,8 @@
-flow_cond_config: players/planner/flow_planner/data_processor_config.json
-flow_config_path: checkpoint/config.yaml
-flow_ckpt_path: checkpoint/latest.pth
-flow_batch: 1
-flow_max_cond_opps: 3
-mpc_dt: 0.05
+#CFM条件流匹配（Flow Matching 生成式模型）
+#Conditional Flow Matching
+flow_cond_config: players/planner/flow_planner/data_processor_config.json   #数据输入与预处理   “输入数据的翻译官”配置。
+flow_config_path: checkpoint/config.yaml                                    #“AI 大脑的骨架设计图”。
+flow_ckpt_path: checkpoint/latest.pth                                       #模型权重（记忆）AI 大脑的记忆（经验
+flow_batch: 1                                                               #每次同时处理几辆车/几个场景
+flow_max_cond_opps: 3                                                       #模型视野里最多同时关注几个对手
+mpc_dt: 0.05                                                                #生成轨迹的时间步长

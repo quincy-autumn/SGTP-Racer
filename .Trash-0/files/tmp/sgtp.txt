@@ -1,0 +1,3067 @@
+SGTP：基于采样的博
+弈规划实时多车辆
+
+SGTP: Sampling-based G
+for Real-Time Multi-Vehi
+
+李周恒1,2 , 赵方国1 , 皮奇尼纳·马蒂亚贝茨·约翰内斯
+3, 陈
+
+Zhouheng Li1,2 , Fangguo Zhao1 , Mattia Piccinin
+Johannes Betz3 , Chen
+Abstract—Autonomous multi-vehicle racing requires real-time
+planning of diverse competitive behaviors in intense interactions.
+Existing planners often struggle to balance strategic diversity
+and computational efficiency. To address this challenge, we propose Sampling-based Game-Theoretic Planning (SGTP), a realtime framework that combines game-theoretic reasoning with
+GPU-accelerated sampling of control sequences and dynamics
+rollouts. Sampled trajectories are ranked using a game-aware
+cost to capture competitive interactions and generate diverse
+racing behaviors. Our planner then performs feasibility selection
+by explicitly enforcing track-boundary and dynamic collisionavoidance constraints, ensuring safe and reliable transitions
+between racing strategies. Extensive simulations on challenging
+tracks show that SGTP achieves a 95.24% win rate and a 99.35%
+task-completion ratio in highly interactive races, with a mean
+computational time of 0.095 s over multiple iterative solving steps.
+We also demonstrate the successful application of SGTP in largescale scenarios with up to 10 agents. We release our code and
+provide an open-source benchmark of multi-agent autonomous
+racing algorithms to facilitate future research. Project page:
+https://sgtp-racing.github.io/.
+Index Terms—Multi-vehicle planning, Game theory, Iterative
+best response, Model Predictive Control, Autonomous Racing
+
+I. I NTRODUCTION
+In Formula 1 racing, drivers continuously manage gaps to
+create overtaking opportunities and defend their positions. Reproducing such sustained wheel-to-wheel interaction remains
+challenging in autonomous racing, as it requires planners to
+generate multiple competitive behaviors and transition reliably
+between them as interactions evolve.
+Despite extensive research on rule-based, optimizationbased, sampling-based, and learning-based trajectory planning
+methods, generating competitive behaviors in multi-vehicle
+racing remains challenging [1]. Finite-State-Machine (FSM)based planners [2], [3] have shown effective multi-behavior
+planning, but they rely on expert-designed behavior modes and
+heavy parameter tuning. Model Predictive Contouring Control
+(MPCC) [4]–[6] and Model Predictive Control (MPC) [7]
+explicitly model racing progress and reference velocity profiles. However, close-proximity interactions make the resulting
+optimization problems sensitive to initialization, leading to
+variable computational time. Sampling-based planners [8] can
+provide an effective trade-off between domain exploration and
+computational efficiency, but existing methods are limited to 12 opponent vehicles. Learning-based methods, including endto-end policies [9] and generative models [10], [11], can represent rich interaction behaviors, but their limited interpretability and cross-scenario generalization remain concerns [12].
+These limitations motivate new planning methods that leverage
+† Corresponding author: leix@iipc.zju.edu.cn.
+1 Zhejiang University, Hangzhou, China. 2 Nanyang Technological University, Singapore. 3 Technical University of Munich, Garching, Germany.
+
+摘要—自主多车辆赛车需要在紧张的交互中实时规划多样化
+的竞争行为。现有规划器往往难以平衡策略多样性和计算效率。
+为应对这一挑战，我们提出了基于采样的博弈规划（SGTP），
+这是一个结合博弈推理与GPU加速控制序列和动力学展开采样
+的实时框架。采样轨迹通过博弈感知成本进行排序，以捕获竞
+争交互并生成多样化的赛车行为。我们的规划器通过显式执行
+赛道边界和动态避碰约束进行可行性选择，确保在赛车策略之
+间实现安全可靠的转换。在具有挑战性的赛道上的大量仿真表
+明，SGTP在高度交互的比赛中实现了95.24%的胜率和99.35
+%的任务完成率，在多次迭代求解步骤中平均计算时间为
+0.095秒。我们还展示了SGTP在最多包含10个智能体的场景中
+的成功应用。我们发布了代码，并提供了一个多智能体自主赛
+车算法的开放源码基准，以促进未来研究。项目页面：
+https://sgtp-racing.github.io/。
+
+索引词—多车辆规划，博弈论，迭代最佳响应，模型预测控制，自
+主赛车
+I. 引言
+
+在一级方程式赛车中，车手们持续管理车距以创造超车
+机会并捍卫自己的位置。在自主赛车中，重现这种持续的車
+对车交互仍然具有挑战性，因为它需要规划者生成多种竞争
+行为，并在交互发展过程中可靠地在它们之间进行转换。
+
+尽管在基于规则、基于优化、基于采样和基于学习的
+轨迹规划方法方面进行了大量研究，但在多车辆赛车中生
+成具有竞争力的行为仍然具有挑战性 [1]。基于有限状态
+机（FSM）的规划器 [2], [3] 已显示出有效的多行为规划
+能力，但它们依赖于专家设计的行為模式，并且需要大量
+的参数调整。模型预测轮廓控制（MPCC） [4]–[6] 和模
+型预测控制（MPC） [7]明确地建模了赛车进程和参考速
+度曲线。然而，近距离交互使得生成的优化问题对初始化
+敏感，导致计算时间变化。基于采样的规划器 [8]可以在
+领域探索和计算效率之间提供有效的权衡，但现有方法仅
+限于1‑2辆对手车辆。基于学习的方法，包括端到端策略
+[9] 和生成模型 [10], [11], 可以表示丰富的交互行为，但
+它们的可解释性和跨场景泛化能力有限，仍然是问题 [12]。
+这些局限性促使人们开发新的规划方法，这些方法可以利
+用
+†通讯作者：leix@iipc.zju.edu.cn.1浙江大学，杭州，中国。 2南
+洋理工大学，新加坡。 3慕尼黑工业大学，格arching，德国。
+
+1
+
+1
+
+Game-Theoretic Planning
+
+博弈论规划
+
+hicle Autonomous Racing
+
+多车辆自主赛车
+
+nini3 , Baha Zarrouki3 , Yuan Gao3 , Zitong Shan2 ,
+hen Lv2 , Lei Xie1,†
+
+nini3 , Baha Zarrouki3 , YuanGao3 , Zitong
+Shan2 ,hen Lv2 , Lei Xie1,†
+
+.
+
+high
+
+Main Modules
+
+Main Modules
+
+high
+
+.
+
+Game-Aware Cost
+low
+
+low
+
+Batched Sampling and
+Ranking
+
+Feasibility Selection
+
+Real-Time Iterative
+Best Response at 10 Hz
+
+Modality A: Ego Wheelto-Wheel Contesting
+
+Modality B: Ego
+Opportunistic Overtake
+
+Modality C: Ego
+Defensive Blocking
+
+批量采样和
+排序
+
+可行性选择
+
+实时迭代
+10赫兹最佳响应
+
+模态 A：自我轮‑
+至‑轮竞争
+
+模态 B：自我
+机会主义超车
+
+模态C：自我
+防御性阻挡
+
+Strategy Diversity
+
+Strategy Diversity
+
+.
+
+.
+
+Fig. 1: Proposed SGTP framework for multi-behavior
+autonomous racing. SGTP combines GPU-accelerated
+sampling-based planning with game-theoretic best-response
+reasoning, using a new game-aware cost to favor competitive
+interactions and selecting the lowest-cost feasible trajectory.
+
+图1：为多行为自主赛车提出的SGTP框架。 SGTP结合
+
+interaction-aware reasoning to explore diverse strategies while
+ensuring reliable transitions between them.
+Game theory provides a principled framework for
+interaction-aware reasoning and multi-strategy planning [13]–
+[15]. Accordingly, multi-vehicle racing can be formulated as
+a Generalized Nash Equilibrium Problem [16]–[18] and is
+commonly solved using Iterative Best Response (IBR), which
+optimizes each vehicle’s strategy while holding those of the
+other vehicles fixed [17], [19], [20]. However, consistently
+obtaining feasible and high-quality solutions to each bestresponse subproblem within the available online computation
+time remains a major bottleneck [17], [18]. Although MPC
+is widely adopted for its ability to explicitly handle system
+and safety constraints [17], [20], the resulting optimization
+problems are highly nonconvex [20]; consequently, both solution quality and computational time are highly sensitive to
+initialization [21], particularly in close-range racing scenarios [20]. As a result, MPC-based best-response solvers exhibit
+initialization-dependent or unpredictable convergence, and impose substantial online computational burdens [8], [17]. Model
+Predictive Path Integral (MPPI)-based planners [22]–[24] have
+emerged as GPU-accelerated sampling-based alternatives for
+real-time trajectory planning. However, they typically handle
+collision avoidance through soft cost penalties rather than
+explicit feasibility checks, which can lead to infeasible maneuvers in close-range wheel-to-wheel racing. Despite the
+potential of integrating MPPI with IBR and tailored gametheoretic cost functions to alleviate existing limitations, this
+combination remains unexplored.
+We propose a Sampling-based Game-Theoretic Planning
+
+交互感知推理以探索多样化策略，同时确保它们之间可靠转
+换。
+
+GPU加速采样规划与博弈论最佳响应推理，使用新的博弈
+感知成本来优先考虑竞争交互，并选择最低成本的可行轨
+迹。
+
+博弈论为交互感知推理和多策略规划提供了一种原则
+
+性框架 [13]–[15]。因此，多车辆赛车可以表述为一个广义
+纳什均衡问题 [16]–[18] ，通常使用迭代最佳响应（
+IBR）来解决，该算法在固定其他车辆策略的同时优化每
+个车辆的策略 [17], [19], [20]。然而，在可用的在线计算
+时间内始终如一地获得每个最佳响应子问题的可行且高质
+量的解决方案仍然是一个主要瓶颈 [17], [18]。尽管模型
+预测控制（MPC）因其能够显式处理系统和安全约束而
+得到广泛应用 [17], [20], ，但产生的优化问题高度非凸
+[20]；因此，解决方案质量和计算时间对初始化高度敏感
+[21], 特别是在近距离赛车场景中 [20]。结果，基于
+MPC的最佳响应求解器表现出初始化相关或不确定的收
+敛性，并带来巨大的在线计算负担 [8], [17]。模型预测路
+径积分（MPPI）规划器 [22]–[24] 已成为GPU加速采样
+为实时轨迹规划提供的替代方案。然而，它们通常通过软
+成本惩罚而不是显式可行性检查来处理碰撞避免，这可能
+导致近距离车对车赛车中的不可行操作。尽管将MPPI与
+IBR和定制的博弈论成本函数相结合以缓解现有限制具有
+潜力，但这种组合仍未被探索。
+
+我们提出了一种Sampling‑based Game‑Theoretic Planning
+
+(SGTP) framework for competitive multi-vehicle racing that
+generates diverse racing strategies in real time. SGTP integrates IBR by reformulating each best-response sub-problem
+as GPU-parallel control sampling, followed by dynamics rollout and trajectory ranking. A game-aware cost encourages
+competitive interactions, while feasibility selection explicitly
+enforces track-boundary and collision-avoidance constraints,
+enabling reliable transitions between strategies (Fig. 1). Existing evaluation frameworks often rely on simplified maps
+and lack interaction-rich benchmarks, limiting the assessment
+of planners in highly competitive racing scenarios [18], [20].
+To address this gap, we release our SGTP planner, its benchmarks and the evaluation platform as open source. The main
+contributions of this letter are summarized as follows:
+1) SGTP: A Real-Time, Sampling-Based, IBR Trajectory
+Planning Framework. SGTP performs GPU-parallel
+batched rollout generation and cost-based selection to
+approximate unilateral best responses, followed by an
+additional ego response after opponent prediction. Our
+design enables multiple competitive behaviors in intense
+interactions, while achieving real-time planning with a
+mean computation time of 0.095s.
+2) Game-Aware Trajectory Cost with Feasibility Selection. A new game-aware cost evaluates rollout trajectories based on relative progress, contest status, blocking
+alignment, and safety margins, thereby promoting diverse
+competitive behaviors. Combined with feasibility selection over the ranked rollouts, SGTP achieves a 95.24%
+win rate and a 99.35% completion ratio in long-duration
+competitive racing.
+3) Open-Source Benchmark of Multi-Agent Autonomous
+Racing. We release an open benchmark with SGTP,
+multiple literature baselines, and several track layouts,
+to evaluate trajectory planning methods in multi-vehicle
+autonomous racing.
+II. SGTP A LGORITHM
+a) Preliminaries and Definitions: Let I = {1, . . . , nv }
+denote the set of racing vehicles, where nv is the number of
+vehicles. For each vehicle i ∈ I, I−i = I \ {i} denotes the set
+of opponent vehicles. Let t denote the current discrete planning
+step. The joint multi-vehicle state at time t is defined as
+Xt = {xi,t }i∈I , where xi,t = [xi,t , yi,t , ψi,t , vi,t ]⊤ and ui,t =
+[ai,t , δi,t ]⊤ denote the state and control input, respectively.
+Here, xi,t and yi,t are the vehicle position, ψi,t is the heading
+angle, vi,t is the speed, ai,t is the longitudinal acceleration,
+and δi,t is the steering angle. The vehicle dynamics are written
+as xi,t+1 = f (xi,t , ui,t ), where f (·) follows the kinematic
+bicycle model in [25]. The sampled control sequence Ui,t
+is [ui,t , . . . , ui,t+H−1 ], and the corresponding trajectory ξi,t
+is denoted by [xi,t , . . . , xi,t+H ], where H is the prediction
+horizon. For the opponent set I−i , the predicted trajectories
+b −i,t = {ξ̂j,t }j∈I , where ξ̂j,t denotes the predicted
+are Ξ
+−i
+trajectory of vehicle j. For a given
+a
+ racetrack, weNcompute
+trk
+minimum-curvature raceline G = (xrj , wjL , wjR ) j=1
+, where
+Ntrk is the number of waypoints, xrj is the raceline state
+trajectory, wjL and wjR are the left and right track widths.
+The raceline generation follows [26]. By interpolating these
+
+(SGTP)框架，用于竞争性多车辆赛车，可在实时中生成
+多样化的赛车策略。SGTP通过将每个最佳响应子问题重
+新表述为GPU并行控制Sampling，然后进行动力学
+Roll‑out和轨迹排序，整合了IBR。博弈感知成本鼓励竞
+争交互，而可行性选择明确强制赛道边界和避撞约束，从
+而在策略之间实现可靠转换（图1）。现有的评估框架通
+常依赖于简化的地图，缺乏丰富的交互基准，限制了在高
+度竞争性赛车场景中对规划器的评估 [18], [20]。为解决
+这一差距，我们发布了我们的SGTP规划器、其基准和评
+估平台作为开源软件。本信的主要贡献总结如下：
+1) SGTP：一个实时、基于采样的IBR轨迹规划框架。
+SGTP执行GPU并行批量滚动生成和基于成本的选取来
+近似单边最佳响应，随后在对手预测后进行额外的自我
+响应。我们的设计在紧张的交互中实现了多种竞争行为，
+同时以均值为0.095s实现了实时规划。
+2) 博弈感知轨迹成本与可行性选择。 一种新的博弈感知
+成本基于相对进度、竞赛状态、阻挡对齐和安全裕度来
+评估 rollout 轨迹，从而促进多样化的竞争行为。结合
+对排序后的 rollout 的可行性选择，SGTP 在长时竞技
+赛车中实现了 95.24% 的胜率和 99.35% 的完成比率。
+3) 多智能体自主赛车开源基准。我们发布了一个基于
+SGTP的开源基准，包含多个文献基线以及多种赛道布
+局，用于评估多车辆自主赛车中的轨迹规划方法。
+II. SGTP 算法
+
+a) 前提与定义：令 I = {1, . . . , nv } 表示赛车集合，
+其中 nv 是车辆数量。对于每辆车辆 i ∈ I，
+I−i = I \ {i} 表示对手车辆集合。令 t 表示当前离散规划
+步长。时间 t 的联合多车辆状态定义为 Xt = {xi，t }i∈I ，
+⊤
+其中 xi，t = [xi,t , yi,t , ψi,t , vi,t ] 和 ui，t =，[ai,t , δi,t ]⊤
+分别表示状态和控制输入。这里，xi，t 和 yi，t 是车辆位
+置，ψi，t 是航向角，vi，t 是速度，ai，t 是纵向加速度，
+而 δi，t 是转向角。车辆动力学表示为 xi，t+1 = f (xi，t，
+ui，t)，其中 f(·) 遵循 [25] 中的运动学自行车模型。采样
+控制序列 Ui，t 是 [ui，t，...，ui，t+H−1 ]，相应的轨迹 ξi，
+t 表示为 [xi，...，xi，t+H ]，其中 H 是预测范围。对于
+对手集合 I−i，预测轨迹 b ˆ ˆ 是 Ξ−i，t = {ξj,t }j∈I−i，
+其中 ξj，t 表示车辆 j 的预测轨迹。对于给定赛道，我们
+
+Ntrk
+计算一条最小曲率赛车线 G = (xrj， wjL， wjR) j=1
+，其
+中 Ntrk 是航点数量，xrj 是赛车线状态轨迹， wjL 和 wjR
+是左右赛道宽度。赛车线生成遵循 [26]。通过插值这些
+
+2
+
+Algorithm 1 Sampling-Based Game-Theoretic Planning
+1: Inputs: Current states {xi,t }i∈I , raceline G, horizon H,
+
+samples K, IBR iterations LIBR , ego vehicle index e
+b = {ξ ⋆ }i∈I
+2: Outputs: Planned trajectories for all agents Ξ
+i
+0
+3: Initialize {ξi }i∈I without game-aware costs. ▷ Distancebased obstacle avoidance
+
+▷ Opponent predictions
+(k,ℓ)
+(k,ℓ) K
+ℓ
+Generate Ci = {(ξi,t , Ui,t )}k=1
+(k,ℓ)
+Compute cost ci
+via (9) ∀ candidate k in Ciℓ
+(k,ℓ)
+Compute feasibility indicators hi
+via (12)
+(k,ℓ)
+Apply selection ki⋆,ℓ ← arg mink:h(k,ℓ) =1 ci
+
+8:
+9:
+10:
+
+(k⋆,ℓ )
+
+11:
+Update ξiℓ ← ξi
+12:
+end for
+13: end for
+(k)
+14: ke∗ = arg mink:h(k) =1 ce
+e
+
+ℓ+1
+
+and U i
+
+i
+
+(k⋆,ℓ )
+
+← Ui
+
+(k,ℓ)
+
+(k,ℓ)
+
+e i,t+τ , where u
+e i,t+τ = uℓi,t+τ + ϵi,t+τ .
+ui,t+τ = ΠU u
+
+Here ΠU (·) applies clipping to acceleration and steering limits.
+(k,ℓ)
+Starting from xi,t = xi,t , we propagate all sampled control
+sequences in parallel through the dynamics f (·), generating
+(k,ℓ)
+(k,ℓ)
+ℓ
+the finite rollout set Ci,t
+= {(ξi,t , Ui,t )}K
+k=1 (line 7).
+b
+Given the fixed opponent predictions Ξℓ−i , the sampled
+rollouts are ranked by our game-aware cost (described in
+Sec. III-A) and checked for feasibility to enforce trackboundary and collision-avoidance constraints (lines 8-9). The
+lowest-cost feasible rollout is selected
+in line 10 as:
+
+(k,ℓ) b ℓ
+ki⋆,ℓ = arg min ci ξi,t , Ξ
+(1)
+−i,t , G ,
+(k,ℓ)
+
+=1
+
+为 每辆车 i ∈ I 执行
+
+b ℓ ← {ˆ ℓ−1
+设置 Ξ
+−i
+ξ }j∈I
+
+▷
+−i (k,ℓ) 对手预测
+t,U
+(k,ℓ) i t
+)}K
+i = {(ξ ,
+,
+k= 1
+i
+(k,ℓ)
+j
+
+生成 C
+计算成本 ci
+通过 (9) ∀候选 k 在 Ciℓ
+(k，ℓ) 通过（12）
+计算可行性指标 h
+i
+⋆,ℓ
+应用选择 k
+← 最小化k:h(k,ℓ) =1 ci(k，ℓ)
+i
+ℓ
+
+7:
+8:
+9:
+10:
+
+14:
+
+▷ Extra ego response
+
+ℓ−1
+
+k:hi
+
+ℓ = 1, . . . , LIBR 执行
+
+(k⋆,ℓ
+)
+
+更新 ξiℓ ← ξi
+end for
+
+13: 结束for
+
+then warm-started with the control sequence U i,t from the
+previous iteration. For each of the K candidate trajectories and
+each prediction step τ , an independent Gaussian perturbation
+is
+
+(k,ℓ)
+sampled as ϵi,t+τ ∼ N (0, Σu ) , Σu = diag σa2 , σδ2 , where
+σa and σδ are the standard deviations of the acceleration and
+steering perturbations. The perturbed control input is generated
+and projected onto
+control set U:
+
+ an admissible
+(k,ℓ)
+
+5:
+6:
+
+11:
+12:
+
+arc-length-parameterized waypoints, G defines continuous reference maps xr (s), wL (s), and wR (s), which are used for
+reference tracking and track-boundary evaluation. The Frenet
+progress si,t along the raceline and lateral offset di,t of vehicle
+i are then computed as: si,t = s(xi,t ; G), di,t = d(xi,t ; G).
+b) Algorithm Formulation: Algorithm 1 summarizes our
+SGTP framework. The trajectories of all vehicles are initialized using simple distance-based collision avoidance (line 3).
+The algorithm loops over the IBR iterations and vehicles
+(lines 4-5). At each IBR iteration, every vehicle i ∈ I
+computes an approximate best response, while the predicted
+trajectories of its opponents are held fixed at their precedingiteration solutions (line 6). To compute the best response,
+we sample K candidate control sequences and propagate
+them in parallel through the vehicle dynamics (line 7). Let
+ℓ
+U i,t =[(uℓi,t )⊤ , . . . , (uℓi,t+H−1 )⊤ ]⊤ denote the nominal control
+sequence of vehicle i at IBR iteration ℓ, used as a reference for
+ℓ
+candidate sampling. U i,t is initialized to zero upon reset and
+
+(k,ℓ)
+
+算法1 基于采样的博弈规划
+1: 输入：当前状态 {xi，t }i∈I ，赛道线 G，视野 H，
+样本 K，IBR迭代次数 LIBR，自我车辆索引 e
+b = {ξ ⋆ }i∈I
+Ξ
+2: 输出：所有智能体的规划轨迹
+i
+0
+3: 初始化 {ξi }i∈I 而不考虑博弈感知成本。 ▷ 距离‑
+基于障碍物避让
+4: 为
+
+4: for ℓ = 1, . . . , LIBR do
+5:
+for each vehicle i ∈ I do
+b ℓ ← {ξ̂ ℓ−1 }j∈I
+6:
+Set Ξ
+−i
+−i
+j
+7:
+
+2
+
+ke∗ = 最小化 k:h(k) =1 ce
+
+(k)
+
+e
+
+和 Ui
+
+ℓ+1
+
+i
+
+← Ui(k ， )
+⋆ ℓ
+
+▷ 额外的自我响应
+
+弧长参数化的航点， G 定义了连续参考地图 xr(s)， wL
+(s) 和 wR(s)，这些地图用于参考跟踪和赛道边界评估。
+赛车线上的弗内特进度 si，t 和车辆 i 的横向偏移 di，t 计
+算为： si，t = s(xi，t； G) di，t = d(xi，t； G)。
+b) 算法公式化：算法1总结了我们的SGTP框架。所有
+车辆的轨迹使用简单的基于距离的避撞初始化（第3行）。
+该算法遍历IBR迭代和车辆（第4‑5行）。在每个IBR迭代
+中，每个车辆 i ∈ I计算一个近似最佳响应，同时其对
+手的预测轨迹保持在其前一个迭代解的固定值（第6行）。
+为了计算最佳响应，我们采样 K 候选控制序列，并将它
+ℓ
+ℓ
+们并行通过车辆动力学（第7行）。令 U i ,t =[(ui,t)⊤, . . . ,
+
+(ui,t+H−1)⊤ ]⊤ 表示车辆 i 在IBR迭代 ℓ中的标称控制序列，
+ℓ
+用作候选采样的参考。 U i ,t 在重置时初始化为零，然后
+ℓ
+
+使用来自前一个迭代的控制序列 U i t 进行热启动。对于
+每个候选轨迹和每个预测步 τ，采样一个独立的正态扰动
+
+(k,ℓ)
+作为 ϵi ,t+τ ∼ N (0, Σu) Σu = diag σa2, σδ2 ，其中
+ℓ−1
+
+σa 和 σδ 是加速度和转向扰动的标准差。扰动控制输入被
+生成并投影到可接受的控制集 U：
+
+
+
+(k,ℓ)
+(k,ℓ)
+(k,ℓ)
+(k,ℓ)
+e i,t+τ , where u
+e i,t+τ = uℓi,t+τ + ϵi,t+τ .
+ui,t+τ = ΠU u
+
+(k,ℓ)
+这里 ΠU (·) 将加速度和转向限制进行裁剪。从 xi
+,t = xi,
+t 开始，我们并行地将所有采样的控制序列通过动力学 f(·)
+ℓ
+(k,ℓ)
+传播，生成有限策略集 Ci ,t = {(ξ
+, , U (k,ℓ) i,t )}K (第7行)。
+it
+
+k=1
+
+Ξℓ−i，所采样的轨迹根据我们的博弈感知成本（详见第 III‑A 节）进行排序，
+
+给定固定的对手预测
+
+b
+
+并检查可行性以强制执行赛道边界和避撞约束（第 8‑9 行）。最低成本的可行轨迹
+在第 10 行被选中，其表示为：III-A）并检查可行性以强制执行赛道边界和避撞约
+束（第 8‑9 行）。最低成本的可行轨迹在第 10 行被选中，其表示为：8-9）。最低
+成本的可行轨迹在第 10 行被选中，其表示为：10 作为：
+
+ki⋆,ℓ = arg
+
+min
+(k,ℓ)
+
+k:hi
+
+=1
+
+
+
+(k,ℓ) b ℓ
+ci ξi,t , Ξ
+−i,t , G ,
+
+(1)
+
+(B) Sampling-Based IBR for
+Game-Theoretic Planning
+Distance-based
+collision-free
+initialization
+
+(B1) Game-Aware Cos
+
+(B) 基于采样的IBR
+博弈论规划
+基于距离
+无碰撞
+初始化
+
+(1) Contest
+Maintenance
+
+−w
+
+)
+− block,ij (1 + dij( k,tail
+)
+
+(k )
+contest ij , H
+
+I
+
+Ego does an
+additional bestresponse update
+
+(A) Planning
+Inputs
+
+(A1) Current states 𝑥𝑖,𝑡 𝑖∈I
+
+(1) 竞赛
+维护
+
+[
+
+−1
+
+ mbd ] ( ) 比赛 ，
+
+(k )
+bd,i
+
+ijH
+
+每辆车 𝑖
+∗
+选择 𝝃ⅈ ,𝑡
+
+Each vehicle 𝑖
+selects 𝝃∗ⅈ,𝑡
+from ranked
+rollouts
+Iteration
+
+(B1) 游戏‑感知
+
+我−
+
+来自排序后的
+rollout
+
+迭代
+
+(3) Progress
+Advantage
+
+(k )
+
+
+safety  max ( 0, g
+safe − g min,ij ) 
+自我执行一个
+
+wlong ij ,t s
+
+(k )
+ij ,t + H
+
+ 
+
+2
+
+额外的最佳响应更新
+
+(A3) Wa
+
+Fig. 2: Proposed Sampling-Based Game-Theoretic Planning
+and ranks them using a game-aware cost evaluated against opp
+response, after which feasibility selection enforces the track-bo
+ego vehicle then performs an additional best-response update.
+(k,ℓ)
+
+Here, ki⋆,ℓ denotes the selected candidate index, and hi
+=1
+indicates that candidate k satisfies both track-boundary and
+dynamic vehicle collision-avoidance constraints.
+The selected trajectory and control sequence warm start the
+next IBR iteration (line 11). After the prescribed number of
+iterations LIBR , the ego vehicle performs one additional bestresponse update with the final opponents’ predictions (line 14).
+III. S AMPLING -BASED G AME -T HEORETIC P LANNING
+As shown in Fig. 2, SGTP performs best-response planning
+by ranking rollouts (generated in parallel on the GPU) using a
+game-aware cost, and selecting the lowest-cost feasible rollout.
+A. Game-Aware Cost for Diverse Behaviors
+We compute our game-aware cost by evaluating a pairwise
+interaction term between each candidate trajectory and the
+predicted opponent trajectories. For the candidate trajectory
+(k,ℓ)
+ξi,t of vehicle i and the predicted trajectory of opponent j,
+the pairwise game-aware cost is defined as follows:
+(k)
+(k)
+(k)
+(k)
+(k)
+cgame,ij = ccontest,ij + clong,ij + cblock,ij + csafety,ij . (2)
+The four cost terms represent contest-state maintenance
+ccontest , longitudinal advantage clong , blocking alignment
+cblock , and safety separation csafety , respectively.
+The key design insight is to progressively shape the interaction through complementary cost terms: the contest term
+preserves rollouts that remain within a meaningful racing
+window, the longitudinal term promotes forward advantage,
+the blocking term encourages defensive positioning, and the
+safety term penalizes insufficient separation. The total gameaware cost for candidate k is obtained by summing the
+P
+(k)
+(k)
+pairwise costs over all opponents: cgame,i = j∈I−i cgame,ij ,
+allowing each opponent prediction to independently contribute
+to the ranking of candidate trajectories.
+
+(A) 规划
+输入
+
+优势
+
+w
+ijtdijtcol
+( )H长的
+，，
+
+ 
+
++
+
+对手预测
+自我候选
+
+更新
+
+Opponent Prediction
+Ego Candidate
+
+(A2) Track and Raceline
+
+(3) 进度
+(k )
+obs,i
+
+(A1) 当前状态 𝑥𝑖,𝑡 𝑖∈I
+
+(A2) 轨迹和赛道线
+
+(A3) Wa
+
+图2：提出的基于采样的博弈规划，使用博弈感知成本对输
+出进行排序，该成本针对对手响应进行评估，之后可行性选
+择强制执行赛道‑自我车辆，然后执行额外的最佳响应更新。
+在此处， k ⋆，i ℓ 表示所选候选索引，而 hi
+
+(k,ℓ)
+
+= 1表示候
+
+选 k 满足赛道边界和动态车辆避撞约束。
+选定的轨迹和控制序列为下一个IBR迭代提供预热
+（行11）。在规定的迭代次数 LIBR后，自我车辆执行一
+次额外的最佳响应更新，使用最终的对手预测（行14）。
+III. 基于采样的博弈规划
+
+如图2所示，SGTP通过使用博弈感知成本对并行在GPU上生成
+的输出进行排序，执行最佳响应规划，并选择最低成本的可行输出。
+
+A. 博弈感知成本用于多样化行为
+我们通过评估每个候选轨迹与预测的对手轨迹之间的
+成对交互项来计算我们的博弈感知成本。对于车辆 i 的
+(k,ℓ)
+候选轨迹 ξi t ,以及对手 j 的预测轨迹，成对博弈感知成
+本定义如下：
+p
+g
+(k)
+
+(k)
+
+(k)
+
+(k)
+
+(k)
+
+cgame,ij = ccontest,ij + clong,ij + cblock,ij + csafety,ij . (2)
+Th 我们的成本项分别表示竞争状态维护c
+f
+i
+contest、纵向优
+势 clong、阻挡对齐cblock和安全性分离 csafety。
+关键设计思路是通过互补成本项逐步塑造交互：竞赛
+项保留仍处于有意义比赛窗口内的 rollout，纵向项促进
+前进优势，阻挡项鼓励防御站位，安全项惩罚分离不足。
+候选 k 的总游戏感知成本通过对所有对手的成对成本求
+P
+(k)
+(k)
+和获得： c 游戏 i = j∈I−i c 游戏 ij，允许每个对手预
+测独立地为候选轨迹的排序做出贡献。
+
+3
+
+Cost for Diverse Behaviors
+
+(B2) Feasibility Selection
+
+3
+
+面向多样化行为的成本
+
+(B2) 可行性选择
+(1) 边界检查
+
+(1) Boundary Check
+(2) 阻塞
+
+(2) Blocking
+Alignment
+
+对齐
+
+(2) 碰撞检查
+
+(2) Collision Check
+(4) 安全
+
+(4) Safety
+Margin
+
+裕度
+
+选定轨迹
+
+Selected trajectory
+Sampled
+Rollout Cloud
+
+Contest Window
+Raceline
+
+) Warm-start control
+
+Execution
+
+Infeasible trajectory
+
+(C) Planned Joint Trajectories
+
+采样
+
+比赛窗口
+
+执行
+
+) 预热控制
+
+…
+
+…
+
+不可行轨迹
+
+Rollout Cloud
+
+Raceline
+
+(C) 计划联合轨迹
+
+ng (SGTP) framework. SGTP first generates sampled rollouts
+ng (SGTP) 框架。 SGTP 首先生成采样轨迹 pponent
+pponent predictions. During IBR, each vehicle computes a best 预测。在 IBR 过程中，每辆车计算最佳边界和车辆间碰撞避
+-boundary and inter-vehicle collision-avoidance constraints. The
+免约束。
+.
+1) Contest-State Maintenance Cost: The contest-state term
+rewards candidate trajectories whose terminal progress gaps
+relative to the predicted opponent trajectories remain within
+(k)
+the longitudinal interaction range. Let si,t+H denote the terminal Frenet progress of ego candidate k, and let ŝj,t+H denote
+the corresponding predicted progress of opponent j. The
+(k)
+pairwise terminal progress gaps are defined as: ∆sij,t+H =
+(k)
+si,t+H − ŝj,t+H . Based on these gaps, the contest indicator
+for candidate k and opponent
+j is:
+h
+i
+(k)
+Iij,H = I
+
+(k)
+|∆sij,t+H | < scontest
+
+迹。令 si ，t+H 表示自我候选 k 的终端弗内特进度，令 ˆsj，
+t+H 表示对手 j 的对应预测进度。成对终端进度差距定义为：
+(k)
+
+(k)
+
+∆sij
+
+where wlong is a scalar weight, and ∆sij,t+H denotes the
+terminal progress gap. A larger positive terminal gap reduces
+the cost, thereby favoring candidates that move ahead of
+the opponent. The adaptive weight αij,t adjusts this progress
+reward according to the current interaction relevance:
+−1
+αij,t = 1 + |∆sij,t |(scontest + ϵ)−1
+.
+Here ϵ is a small positive constant. A larger αij,t assigns
+greater importance to terminal progress gains when the two
+vehicles are close. As their progress gap increases, αij,t
+decreases the reward due to weaker interaction relevance.
+
+，
+t+H
+
+(k)
+si t+H − sj t+H .
+
+=
+，ˆ，
+
+基于这些差距，候选 k 和对手 j 的竞赛指标为：
+
+h
+i
+(k)
+(k)
+Iij,H = I |∆sij,t+H | < scontest ,
+
+,
+
+where scontest denotes the longitudinal contest range. The
+corresponding pairwise contest-state cost is:
+(k)
+(k)
+ccontest,ij = −wcontest Iij,H .
+(3)
+where wcontest is a tunable weight. The core insight is to
+encourage sampled rollouts to interact closely with opponents’
+predicted trajectories within a meaningful competitive window.
+2) Longitudinal Advantage Cost: The longitudinal advantage term encourages candidate trajectories that achieve a
+terminal progress advantage over opponent j. It is defined as:
+(k)
+(k)
+clong,ij = −wlong αij,t ∆sij,t+H ,
+(4)
+(k)
+
+1) 竞赛状态维护成本：竞赛状态项奖励那些相对于预测
+的对手轨迹，终端进度差距仍处于纵向交互范围内的候选轨
+
+其中 scontest 表示纵向竞赛范围。相应的成对竞赛状态成本
+为：
+(k)
+
+(k)
+
+ccontest,ij = −wcontest Iij,H .
+(3)
+其中 wcontest 是一个可调权重。核心思想是鼓励采样轨
+迹与对手预测轨迹在有意义竞争窗口内紧密交互。
+2) 纵向优势成本：纵向优势项鼓励候选轨迹在终点进
+度上优于对手 j。其定义为：
+(k)
+
+(k)
+
+clong,ij = −wlong αij,t ∆sij,t+H ,
+(4)
+k
+( ) 表示终点进度
+其中 wlong 是一个标量权重， ∆sij ,t+H
+差距。较大的正终点差距会降低成本，从而倾向于领先对
+手的候选轨迹。自适应权重αij,t 根据当前交互相关性调整
+此进度奖励：
+−1
+αij,t = 1 + |∆sij,t |(scontest + ϵ)−1
+.
+Here ϵ 是一个小的正常数。一个更大的 αij,t 在两辆车
+靠近时赋予终端进度增益更大的重要性。随着它们进度差
+距的增加，αij,t由于交互相关性较弱而减少奖励。
+
+3) Blocking Alignment Cost: The blocking alignment term
+encourages candidate trajectories whose lateral positions align
+with the predicted position of opponent j near the end of the
+prediction horizon. Let Ttail denote the set of horizon indices
+within the final µtail portion of the prediction horizon. The
+mean lateral offsets of candidate k and opponent j over this
+final portion of the horizon are defined as follows:
+X (k)
+X
+1
+1
+(k)
+di,t+τ , d¯j =
+dˆj,t+τ ,
+d¯i =
+|Ttail |
+|Ttail |
+τ ∈Ttail
+
+Here, γblock,ij = wblock I[∆sij,t > srole ] I[∆sij,t < scontest ]
+activates the blocking cost when vehicle i has a longitudinal
+advantage of at least srole while remaining within the contest
+range scontest , where ∆sij,t = si,t − ŝj,t . The scalar wblock is
+the weight. Such lateral alignment reduces the space available
+to the trailing vehicle and promotes defensive blocking.
+4) Safety Cost: The safety term penalizes candidate rollouts
+whose predicted separation from an opponent falls below the
+desired threshold gsafe . For candidate k and opponent j, the
+minimum time-aligned distance is:
+(k)
+
+min
+
+τ =1,...,H
+
+(k)
+
+pi,t+τ − p̂j,t+τ
+
+,
+
+(k)
+
+Here, wsafety is the corresponding scalar weight. This cost
+penalizes candidates whose minimum predicted separation
+falls below gsafe , and the penalty increases quadratically with
+the magnitude of the violation.
+5) Overall Game-Aware Rollout Ranking: In addition to
+the game-aware cost, each sampled rollout is evaluated using
+a nominal quadratic tracking and control cost relative to a
+reference trajectory derived from the arc-length-parameterized
+raceline G. For vehicle i, the reference progress sri,t+τ is
+propagated recursively along G using the associated reference
+velocity profile v r (s), starting from sri,t = si,t :
+sri,t+τ +1 = sri,t+τ + ∆t v r (sri,t+τ ), τ = 0, . . . , H − 1.
+The corresponding reference states are obtained as xri,t+τ =
+xr (sri,t+τ ). For each candidate rollout k, the nominal tracking
+and control cost is defined as:
+H
+X
+2
+(k)
+(k)
+ctrack,i =
+xi,t+τ − xri,t+τ
++
+
+(k)
+
+Q
+
+(k)
+ui,t+τ
+
+2
+
++
+
+H−1
+X
+
+(k)
+∆ui,t+τ
+
+(k)
+
+(k)
+
+X
+
+|Ttail |
+
+dˆj,t+τ ,
+
+τ ∈Ttail
+
+
+−1
+(k)
+(k)
+cblock,ij = −γblock,ij 1 + ∆dij,tail
+.
+
+(5)
+
+这里，γblock，ij = wblock I[∆sij,t > srole ] I[∆sij,t < scontest ]
+在车辆 i 具有至少 srole 的纵向优势且仍处于竞争范围
+scontest 内时激活阻挡成本，其中 ∆sij，t = si，t −ˆsj，t。标
+量 wblock 是权重。这种横向对齐减少了尾随车辆的可用空
+间，并促进了防御性阻挡。
+
+4) 安全成本： 安全项惩罚那些与对手的预测分离距
+离低于期望阈值 gsafe 的候选轨迹。对于候选 k 和对手
+j，最小时间对齐距离为：
+(k)
+
+gmin,ij =
+其中pi
+
+(k)
+
+min
+
+τ =1,...,H
+
+(k)
+
+pi,t+τ − p̂j,t+τ
+
+,
+
+(6)
+
+2
+
+,t+τ 和 ˆpj,t+τ 分别表示候选 k 关联的位置和对
+
+手 j 在时间t + τ的预测位置。相应的成对安全成本为：
+h
+
+i2
+(k)
+(k)
+csafety,ij = wsafety max 0, gsafe − gmin,ij
+.
+
+(7)
+
+这里， wsafetyi s the 对应的标量我们得到。该成本惩罚预
+di
+l
+i h
+h
+测最小分离值低于 gsafe的候选，且惩罚随违规幅度的平方
+值增加。
+5) 整体博弈感知滚动排序：除了博弈感知成本外，每
+个采样的滚动路径还会使用相对于从弧长参数化赛道 G派
+生的参考轨迹的标称二次跟踪和控制成本进行评估。对于
+r
+车辆 i，参考进度si ,t+τ 沿着 G 使用关联的参考速度曲线
+r
+v r(s)递归传播，从si ,t = si,t开始：
+sri,t+τ +1 = sri,t+τ + ∆t v r (sri,t+τ ), τ = 0, . . . , H − 1.
+r
+r
+相应的参考状态获得为xi ,t+τ =xr(si ,t+τ )。对于每个候选
+滚动路径 k，标称跟踪和控制成本定义为：
+(k)
+
+ctrack,i =
+
+H
+X
+
+(k)
+
+xi,t+τ − xri,t+τ
+
+τ =1
+H−1
+X
+
++
+
+.
+
+ci = ctrack,i + wgame cgame,i .
+(9)
+Here, the weight wgame balances the influence of the gameaware cost against the nominal tracking and control cost.
+
+τ ∈Ttail
+
+1
+
+为：
+
+2
+
+Here ∆ui,t+τ =
+weighting matrices. The total cost assigned to candidate k is:
+
+(k)
+di,t+τ , d¯j =
+
+X
+
+|Ttail |
+
+(8)
+
+R
+S
+τ =0
+τ =1
+(k)
+(k)
+ui,t+τ − ui,t+τ −1 , and Q, R, and S are
+
+(k)
+
+1
+
+ˆ其中 dj，t+τ 表示对手 j 的预测横向偏移量。相应的尾部横向间
+¯(k) ¯
+(k)
+隙为： ∆dij ，尾部 = di − dj . 使用此间隙，阻挡对齐成本被定义
+
+(6)
+
+2
+
+where pi,t+τ and p̂j,t+τ denote the position associated with
+candidate k and the predicted position of opponent j at time
+t + τ , respectively. The corresponding pairwise safety cost is:
+h
+
+i2
+(k)
+(k)
+csafety,ij = wsafety max 0, gsafe − gmin,ij
+.
+(7)
+
+τ =1
+H−1
+X
+
+(k)
+d¯i =
+
+τ ∈Ttail
+
+where dˆj,t+τ denotes the predicted lateral offset of opponent j.
+(k)
+(k)
+The corresponding tail lateral gap is: ∆dij,tail = d¯i − d¯j .
+Using this gap, the blocking alignment cost is formulated as:
+
+−1
+(k)
+(k)
+cblock,ij = −γblock,ij 1 + ∆dij,tail
+.
+(5)
+
+gmin,ij =
+
+3) 阻挡对齐成本： 阻挡对齐项鼓励候选轨迹，使其
+横向位置与预测的对手 j 在预测范围末端的位置对齐。令
+Ttail 表示预测范围最终 µtail 部分内的范围索引集。候
+选 k 和对手 j 在此预测范围最终部分上的横向偏移量的
+均值定义如下：
+
+(k)
+ui,t+τ
+
+2
+
++
+
+Q
+H−1
+X
+
+(8)
+(k)
+∆ui,t+τ
+
+2
+
+.
+
+S
+τ =1
+(k)
+(k)
+(k)
+=
+−
+∆ui ,t+τ
+ui ,t+τ ui ,t+τ −1，以及 Q、
+τ =0
+
+R
+
+2
+
+这里
+R 和 S 是权重矩阵。分配给候选 k 的总成本是：
+(k)
+(k)
+(k)
+ci = ctrack,i + wgame cgame,i .
+
+(9)
+
+这里，权重 wgame 平衡了游戏感知成本与标称跟踪和控制
+成本的影响。
+
+4
+
+B. 可行性选择
+
+B. Feasibility Selection
+After batch cost evaluation, feasibility selection applies
+explicit track-boundary and inter-vehicle collision checks to
+the ranked candidates and selects the lowest-cost candidate
+that passes both checks.
+1) Track-Boundary Check: The track-boundary clearance
+of candidate k atprediction step τ is defined as follows: 
+(k)
+
+(k)
+
+(k)
+
+(k)
+
+(k)
+
+ρbd,i,t+τ = min wR(si,t+τ ) + di,t+τ , wL(si,t+τ ) − di,t+τ .
+The minimum boundary clearance over the prediction horizon
+(k)
+(k)
+is ρbd,i = minτ =1,...,H ρbd,i,t+τ . A candidate passes the trackboundary check if its minimum clearance remains above the
+required threshold mbd :
+ (k)
+
+(k)
+bi = I ρbd,i ≥ mbd .
+(10)
+2) Collision-Avoidance Check: The inter-vehicle collision
+check uses the time-aligned minimum-distance operator defined in (6). For candidate rollout k, the minimum clear(k)
+ance over all opponents is defined as follows: ρobs,i =
+(k)
+(k)
+minj∈I−i gmin,ij , where gmin,ij is given by (6). The candidate
+passes the collision-avoidance check if this minimum clearance remains above the collision
+threshold
+h
+i dcol :
+(k)
+
+oi
+
+(k)
+
+= I ρobs,i ≥ dcol .
+
+(k)
+
+(k)
+
+ki∗ = arg min ci , hi
+
+(k)
+
+= bi
+
+批量成本评估后，可行性选择会对排名候选者应用显
+式的赛道边界和车辆间碰撞检查，并选择通过两项检查的
+最低成本候选者。
+1) 赛道边界检查： 候选 k 在预测步
+τ 的赛道边界
+
+(k)
+(k)
+(k)
+间隙定义为如下：ρ bd i,t+τ = min wR(si ,t+τ ) + di ,
+
+(k)
+L (k)
+t+τ , w (si ,t+τ ) − di ,t+τ .预测范围内的最小边界间隙
+是 ρ
+
+(k)
+
+bd i = minτ =1,...,H ρ
+
+(k)
+
+oi .
+
+(12)
+
+Feasibility selection complements cost-based rollout ranking: the composite cost ranks the candidates, whereas the
+boundary and collision checks determine which candidates
+satisfy the prescribed feasibility criteria. The selected control
+sequence is used to warm-start the next planning step. If no
+feasible candidate exists, a least-violation fallback strategy is
+invoked. The boundary and collision violations foreach can(k)
+(k)
+(k)
+didate are defined as: νbd,i = max 0, mbd − ρbd,i , νobs,i =
+
+(k)
+(k)
+max 0, dcol − ρobs,i , with the total violation given by νi =
+(k)
+(k)
+νbd,i + νobs,i . The fallback strategy selects the candidate with
+(k)
+the smallest combined violation: k ∗ = arg mink νi .
+
+(k)
+
+bd i,t+τ . 如果候选的最小间
+
+隙保持在所需阈值 mbd 以上，则通过赛道边界检查：
+ (k)
+
+(k)
+bi = I ρbd,i ≥ mbd .
+(10)
+2) 避撞检查： 车辆间避撞检查使用在（6）中定义的
+时间对齐最小距离算子。对于候选轨迹 k，所有对手的最
+(k)
+(k)
+小间隙定义为如下： ρ obs i = minj∈I−i g min ij，
+其中 g
+
+(k)
+
+min ij 由（6）给出。如果该最小间隙保持在避撞
+
+阈值 dcol：以上，则通过避撞检查：
+(k)
+
+oi
+
+(11)
+
+ℓ
+After ranking the candidate trajectories in Ci,t
+according to the
+cost in (9), each candidate is marked as feasible if it passes
+both the track-boundary and collision-avoidance checks. The
+lowest-cost candidate that passes both feasibility checks is
+selected as the planned trajectory at IBR iteration ℓ:
+(k)
+k:hi =1
+
+4
+
+h
+i
+(k)
+= I ρobs,i ≥ dcol .
+
+(11)
+
+ℓ
+在根据Ci，t 根据（9）中的成本对候选轨迹进行排序后，
+如果每个候选轨迹都通过赛道边界和避撞检查，则将其标
+
+记为可行。通过这两个可行性检查的最低成本候选轨迹将
+在IBR迭代 ℓ：
+(k)
+
+(k)
+
+ki∗ = arg min ci , hi
+(k)
+k:hi =1
+
+(k)
+
+= bi
+
+(k)
+
+oi .
+
+(12)
+
+可行性选择补充了基于成本的滚动排序：复合成本对候选轨
+迹进行排序，而边界和避撞检查则确定哪些候选轨迹满足规定的
+可行性标准。选定的控制序列用于为下一步规划提供预热启动。
+如果没有可行的候选轨迹，则调用最小违规回退策略。每个候选
+(k)
+(k)
+轨迹的边界和避撞违规定义为：
+ν bd i = max 0， mbd − ρ
+
+(k)
+bd i ， ν
+obs i = max
+(k) 
+(k)
+0 dcol − ρ i
+νi = ，obs，
+(k)
+ν
+(k)
+总违规为bd i + ν obs i。回退策略选择综合违规最小的候选轨迹：
+k ∗ = arg mink νi .
+(k)
+
+IV. 结果与讨论
+
+IV. R ESULTS AND D ISCUSSION
+This section evaluates SGTP in long-duration, closed-loop
+competitive multi-vehicle racing scenarios. We compare SGTP
+with a range of representative baselines, conduct ablation
+studies to assess the contributions of the proposed modules,
+and validate its performance across challenging tracks. The
+evaluation focuses on competitiveness and real-time efficiency.
+
+本节评估 SGTP 在长时、闭环竞争性多车辆赛车场景
+中的表现。我们将 SGTP 与一系列代表性基线进行比较，
+进行消融研究以评估所提出模块的贡献，并在具有挑战性
+的赛道上验证其性能。评估重点关注竞争力和实时效率。
+
+A. Literature Benchmarks
+
+A. 文献基准
+
+The proposed method is compared with eight literature
+benchmarks. These include a sampling-based lattice planner [27], the learning-based End2Race method in [9], and the
+conditional flow-matching (CFM) planner proposed in [10].
+End2Race [9] predicts control commands from past velocities
+and LiDAR inputs, whereas the CFM planner [10] generates
+
+所提出的方法与八项文献基准进行了比较。这些包括
+基于采样的格点规划器 [27], 以及 [9], 中基于学习的
+End2Race 方法，还有 [10] 中提出的条件流匹配（
+CFM）规划器。End2Race [9] 根据过去的速度和
+LiDAR 输入预测控制指令，而 CFM 规划器 [10] 生成
+
+plans conditioned on opponent predictions and the raceline.
+We also compare SGTP with the Race Stack framework in [2],
+a rule-based FSM method validated in real-world racing, and
+with the EVO-MPCC method proposed in [28], which has also
+been validated in real-world racing scenarios. In addition, we
+include two MPPI-based baselines: standard MPPI [22] and
+Biased-MPPI [23]. Finally, following [20], we integrate EVOMPCC into the IBR loop to compare SGTP with an MPCbased solver under the same IBR framework.
+Two ablation variants are evaluated. The first ablation,
+named SGTP w/o GC, removes the game-aware cost term
+in (2) while retaining feasibility selection. The second, named
+GA-IBR-MPPI, incorporates the same game-aware cost into
+the IBR loop but uses the standard MPPI formulation, which
+updates the nominal control sequence through path-integral
+importance weighting [22]. In all cases, the planned trajectories are tracked with the same pure-pursuit controller [9]. For
+simulation, we use the F1TENTH Gym environment described
+in [9] and the vehicle model presented in [25].
+
+基于对手预测和赛车路线的计划。我们还比较 SGTP 与
+中基于规则的 FSM 方法（已在真实赛车中验证），以及
+中提出的 EVO‑MPCC 方法（该方法的验证场景也包含真
+实赛车）。此外，我们包含两个基于 MPPI 的基线：标准
+MPPI [22] 和 Biased‑MPPI [23]。最后，遵循 [20], 我
+
+B. Implementation and Racing Scenarios
+
+B. 实施与赛车场景
+
+SGTP and the MPPI baselines use K=128 samples over a
+1.2s prediction horizon (H=12), with σa = 0.335 and σδ =
+0.025. The tracking-cost weights are Q=[60, 60, 47.75, 39.48],
+R=[8.43, 20.0], and S=[1.0, 19.26]. We set wgame =60,
+scontest =8.0m, srole =1.0m, µtail =0.3, and gsafe =1.0m. We use
+LIBR =2 IBR iterations, mbd is 0.515m, and dcol is 0.9m.
+The game-aware cost weights [wcontest , wlong , wblock , wsafety ]
+= [1.0, 2.0, 10.0, 50.0] are manually tuned. The MPC-based
+benchmark employs the CasADi [29] software tool, with the
+IPOPT solver. We run our SGTP, the MPPI and learningbased baselines on an NVIDIA GeForce RTX 4060 GPU.
+We employ the following 7 racetracks from the open-source
+MapZooa repository: warehouse v1, Berlin, f-shape, Brands
+Hatch, Oschersleben, MoscowRaceway, and Nuerburgring.
+For each track, the minimum-curvature raceline [26] is used
+as the reference trajectory G for all vehicles. On each track,
+vehicles are initialized in a longitudinal queue along the track
+with a uniform 2m inter-vehicle spacing in ascending Frenet
+progress, with the ego vehicle always placed rearmost. The
+reference speeds of the opponent vehicles are scaled by a
+factor of 0.9 to promote close-range interactions.
+C. Evaluation Metrics
+A trial is considered a win if the ego vehicle achieves a
+greater Frenet progress gain (along the track reference line)
+than all opponents. Specifically, the win indicator is defined
+as I [∆se > maxj̸=e ∆sj + ϵs ], where ∆sj = sj,T −sj,0 is the
+progress gain of vehicle j, ∆se is the ego progress gain, T
+is the trial duration, and ϵs = 5 × 10−3 is a small margin.
+The win rate over all trials is reported as Wins. We also
+monitor the Collision-Free Win rate (CFW) among winning
+trials; a higher value indicates cleaner wins without collisions.
+Since the ego vehicle is initialized behind the opponents in
+each trial, we further report the Final Pass Ratio (FPR) to
+quantify final overtaking performance. FPR is defined as the
+fraction of opponents overtaken by the ego vehicle by the end
+a https://github.com/zhouhengli/MapZoo
+
+们将 EVO‑MPCC 集成到 IBR 循环中，以在相同的 IBR
+框架下比较 SGTP 与基于 MPC 的求解器。
+评估了两种消融变体。第一种消融变体，命名为 S
+GTP 无 GC，移除了（2）中的博弈感知成本项，同时保留了
+可行性选择。第二种，命名为 GA‑IBR‑MPPI，将相同的博
+弈感知成本整合到 IBR 循环中，但使用标准的 MPPI 公式，
+该公式通过路径积分重要性加权更新名义控制序列 [22]。在
+所有情况下，规划的轨迹均使用相同的纯追踪控制器 [9]进行
+跟踪 [9]。对于仿真，我们使用 [9]中描述的
+F1TENTHGym 环境，以及 [25]中提出的车辆模型。
+
+SGTP 和 MPPI 基线在 1.2 秒预测范围（H=12）内使用
+K=128 个样本， σa = 0.335 和 σδ = 为 0.025。跟踪成
+本权重为 Q=[60, 60, 47.75, 39.48],R=[8.43, 20.0], 和 S
+=[1.0, 19.26]。我们设置 wgame =60,scontest =8 为 0.0m,
+srole =1 为 0.0m, µtail =0 为 0.3，以及 gsafe =1 为 0.0m。我
+们使用 LIBR =2 个 IBR 迭代， mbd 为 0.515m， dcol 为
+0.9m。博弈感知成本权重 [wcontest , wlong , wblock , wsafety ]
+= [1.0, 2.0, 10.0, 50.0] 由人工手动调整。基于 MPC 的基准采
+用 CasADi [29] 软件工具，并使用 IPOPT 求解器。我们在
+NVIDIA GeForce RTX 4060 GPU 上运行 SGTP、MPPI 和
+基于学习的基准。我们采用开源 MapZooa 仓库中的以下
+7 条赛道：warehouse v1,柏林, f-shape, BrandsHatch,
+Oschersleben,MoscowRaceway, 和 Nuerburgring。对于每条赛
+道，最小曲率赛车线 [26] 被用作所有车辆的参考轨迹 G 。
+在每条赛道上，车辆沿赛道以纵向队列初始化，车辆间距为
+2m，在升序弗内特进度中保持均匀，自我车辆始终放置在最
+后方。对手车辆的参考速度按 0.9 的因子缩放，以促进近距
+离交互。
+
+C. 评估指标
+如果自我车辆在赛道参考线上的弗内特进度增益（
+Frenet progress gain）大于所有对手，则该试验被视为获
+胜。具体来说，胜指标定义为 I [∆se > maxj̸=e ∆sj + ϵs ]，
+其中 ∆sj = sj,T −sj,0 是车辆 j, ∆se 是自我进度增益， T 是
+试验持续时间，而 ϵs = 5 × 10−3 是一个小的余量。所有试
+验的胜率以 Wins 报告。我们还监测获胜试验中的无碰撞胜率
+（CFW）；值越高表示无碰撞的更干净的胜利。由于自我车
+辆在每个试验中初始化在对手后面，我们进一步报告最终超
+越比率（FPR）以量化最终超越性能。FPR 定义为试验结束
+时自我车辆超越的对手的比例：FPR I [∆se > ，其中
+j̸=e ∆sj + ϵs ]是车辆数量。
+ahttps://github.com/zhouhengli/MapZoo
+
+5
+
+P
+of the trial: FPR = nv1−1 j̸=e I [se,T > sj,T + ϵs ] , where
+nv is the number of vehicles. To assess long-duration racing
+performance, we report the maximum trial duration Dmax
+and the mean trial duration Dmean . A trial terminates when
+either a collision occurs or the predefined maximum duration is
+reached. The Close-interaction Segment Duration (CSD) measures the mean duration of segments during which an opponent
+remains within 1.0m longitudinally and 0.5m laterally of the
+ego vehicle in Frenet coordinates. The mean ego velocity,
+denoted as v̄ego , is computed by averaging the ego speed
+over all samples from all trials. Mean Control
+PT Smoothness
+is reported by MCS and is computed as T1 k=1 ∥∆uk ∥22 .
+Computation Time (CT), defined as the elapsed wall-clock
+time of each planning call, is used to evaluate real-time
+efficiency. For IBR-based game planners, CT corresponds to
+the total time over all IBR iterations and the additional ego
+response. We report CTmean , CTstd , and CTmax over all
+valid trials for statistical comparison. In the radar visualization
+of Fig. 5, the six normalized axes represent long-duration
+interaction (Dmean ), winning ability (Wins), overtaking ability
+(FPR), close-range interaction (CSD), aggressiveness (v̄ego ),
+and runtime efficiency (the inverse-normalized CTmean ).
+
+D. Qualitative Evaluation of Multi-Behavior Interactions
+Three challenging tracks, Berlin, f-shape, and Brands Hatch,
+are used to evaluate SGTP in highly interactive racing scenarios. Each trial lasts up to 40s and includes three vehicles:
+the ego vehicle, Opponent 1 (O1), and Opponent 2 (O2). All
+vehicles are controlled by SGTP, and the opponents respond
+reactively and competitively to the ego vehicle during the race.
+As shown in Fig. 3 and 4, SGTP produces sustained closerange interactions in multi-vehicle racing. On the Berlin track,
+O1 (blue) executes a defensive blocking maneuver during time
+t1 –t2 by deviating from the raceline (zoomed view (a)). This
+maneuver is to defend its position and prevent the ego vehicle
+(red) from overtaking. The ego vehicle responds by trailing O1
+at t2 –t4 and then uses its speed advantage (Fig. 4) to engage
+sustained wheel-to-wheel contesting at t4 –t7 , progressively
+securing a favorable racing corridor and ultimately achieving
+an opportunistic overtake at t8 , as also shown in Fig. 4. On the
+f-shape track (Fig. 3, middle), O1 initiates a defensive blocking
+maneuver at t2 (see (b) zoom-in view). As the interaction
+evolves, O1 moves farther from the raceline. The trade-off
+between blocking and raceline tracking then favors its return
+toward the raceline between t3 and t5 . The ego preserves an
+overtaking corridor, maintains feasible wheel-to-wheel racing,
+and completes the overtake from t5 to t8 . On the Brands Hatch
+track, the ego vehicle simultaneously faces blocking from O2
+ahead and overtaking pressure from O1 behind at t2 (see (c)
+zoom-in view). Nevertheless, it completes an opportunistic
+overtake during t3 –t4 by exploiting its speed advantage.
+These results show that SGTP generates diverse competitive
+behaviors through IBR updates and game-aware rollout ranking, including blocking, wheel-to-wheel contesting, and opportunistic overtaking. The results further show that SGTP can
+transition smoothly among behaviors as interactions evolve.
+
+5
+
+为评估长时赛车性能，我们报告最大试验持续时间 Dmax
+和平均试验持续时间 Dmean。当发生碰撞或达到预定义的
+最大持续时间时，试验终止。接近交互段持续时间（
+CSD）测量对手在弗内特坐标中纵向保持1.0m、横向保持
+0.5m内自我车辆的平均持续时间。平均自我速度 v̄ego 是
+通过对所有试验的所有样本的自我速度进行平均计算的。
+PT
+平均控制平滑度由 MCS 报告，并计算为 T1 k=1 ∥∆u
+2
+k ∥2 .计算时间（CT）定义为每个规划调用的经过的墙上时
+间，用于评估实时效率。对于基于 IBR 的游戏规划器，
+CT 对应于所有 IBR 迭代和额外的自我响应的总时间。我
+们报告 CTmean, CTstd 和 CTmax 以所有有效试验进行
+
+统计比较。在图 5 的雷达可视化中，六个标准化轴表示长
+时交互 (Dmean)、获胜能力（Wins）、超越能力（FPR）、
+近距离交互（CSD）、侵略性 (v̄ego) 和运行时效率（逆标
+准化 CTmean）。
+
+D. 多行为交互的定性评估
+使用柏林、f形和 Brands Hatch 三个具有挑战性的
+赛道，评估 SGTP 在高度交互的赛车场景中的表现。每次
+试验持续最长 40 秒，包括三辆车：自我车辆、对手1（
+O1）和对手2（O2）。所有车辆均由 SGTP 控制，对手在
+比赛中对自我车辆做出反应性和竞争性的回应。如图 3 和
+4 所示，SGTP 在多车辆赛车中产生持续的近距离交互。
+在柏林赛道上，O1（蓝色）在 t1–t2 期间执行防御性阻挡
+动作，通过偏离赛车线（放大视图（a）），目的是保卫
+其位置并阻止自我车辆（红色）超越。自我车辆通过在 t2–
+t4 期间跟随 O1 做出回应，然后利用其速度优势（图 4）
+在 t4–t7 期间参与持续的 车对车 争斗，逐步占据有利的
+赛车走廊，并最终在 t8 实现机会主义超越，如图 4 所示。
+在 f形赛道上（图 3，中间），O1 在 t2 （参见（b）放
+大视图）发起防御性阻挡动作。随着交互的演变，O1 越
+来越远离赛车线。阻挡和赛车线跟踪之间的权衡使其在 t3
+和 t5 期间回归赛车线。自我车辆保持超越走廊，维持可
+行的 车对车 赛车，并在 t5 – t8 完成超越。在 Brands
+Hatch 赛道上，自我车辆在 t2 （参见（c）放大视图）
+同时面临来自前方 O2 的阻挡和后方 O1 的超越压力。尽
+管如此，它通过利用其速度优势，在 t3–t4 期间完成了机
+会主义超越。
+这些结果表明，SGTP通过IBR更新和游戏感知的
+rollout 排名生成多样化的竞争行为，包括阻挡、车轮对
+车轮的竞争以及机会主义的超越。结果进一步表明，随着
+交互的演变，SGTP可以在行为之间平稳过渡。
+
+t4
+
+t4
+
+t3
+
+t4
+
+t6
+
+t3
+
+t5
+
+t7
+t7
+
+t7
+
+t4
+
+t8
+
+t6
+
+t3
+t5
+
+t5
+
+t6
+
+t6
+
+t3
+t7
+
+t2
+
+t1
+t1
+
+t7
+
+t4
+
+t6
+
+t4
+
+t1
+
+t8
+
+t8
+
+Track: Berlin
+
+t4
+
+t2
+
+t3
+
+t2
+t7
+
+t3
+t7
+
+t2
+t1
+
+t1
+
+(a) 放大：
+对手1
+防御性阻挡
+
+t8
+成功
+自我超越
+
+t3
+
+t1
+
+t7
+
+(a) Zoom-in:
+Opponent 1
+Defensive Blocking
+
+t8
+Successful
+ego overtake
+
+t3
+
+t5
+
+D
+
+t3
+
+t2
+t7
+
+t8
+
+t6
+t5
+
+t4
+
+t2
+
+t7
+
+t6
+
+t3
+
+t6
+
+t4
+
+t7
+t7
+
+t5
+
+t4
+
+t6
+
+t3
+
+t5
+
+D
+
+t6
+
+t6
+
+t5
+
+t5
+t5
+
+t3
+
+t5
+
+t6
+
+t5
+
+t4
+
+t4
+
+t8
+
+t8
+
+赛道：柏林
+
+Fig. 3: SGTP enables competitive behaviors and reliable tra 图3：SGTP能够实现竞争性行为并在多条赛道上可靠地行驶。 自我
+multiple racetracks. The ego vehicle demonstrates diverse racin 车辆在完成一次机会主义超车前展示了多样化的赛车行为，并在持
+before completing an opportunistic overtake after sustained close-r 续近距离追逐后...
+E. Quantitative Results: Performance & Real-Time Efficiency
+For each of the 7 tracks in Section IV-B, we sample 6
+starting positions, yielding 42 trials with one ego and two
+opponents. Each trial runs for at most 50s and terminates
+if the ego vehicle is involved in a collision. The CFM and
+End2Race benchmarks use MPPI-controlled opponents for
+stable opponent predictions. For all other methods, the ego
+vehicle and opponents use the same planner.
+Our SGTP achieves the best overall performance (Table I),
+with 95.24% Wins and 100.00% wins without collisions
+(CFW). It also achieves Dmean = 49.67s under a predefined
+maximum trial duration of 50s, indicating that it can sustain
+racing for nearly the entire allowed duration. In addition,
+our SGTP obtains the highest FPR of 75.00% and CSD of
+0.99, indicating successful overtaking after sustained closerange interactions. Meanwhile, it maintains competitive speed
+(v̄ego = 5.86 m/s) and smooth controls (MCS = 0.008). As
+shown in Fig. 5, SGTP presents the most balanced profile
+across long-duration racing, winning ability, overtaking ability,
+tense interaction, aggressiveness, and runtime efficiency. It
+also runs in real time, with CTmean = 0.095 s (Table I).
+Compared with the other benchmarks, only EVO-MPCC and
+IBR-MPC achieve relatively high win rates of 92.86% and
+85.71%, respectively. However, neither method can sustain
+intense competitive interactions over extended racing periods.
+In addition, their planning processes are both time-consuming
+and unstable. Specifically, the CTmean values for EVO-MPCC
+and IBR-MPC are 0.860s and 1.903s, while the corresponding
+CTstd values are 0.646s and 1.043s, making these methods
+
+E. 定量结果：性能与实时效率
+对于第IV‑B节中的7条赛道，我们采样6个起始位置，产
+生42次试验，每次试验包含一辆自我车辆和两辆对手。每次
+试验最多运行50秒，如果自我车辆发生碰撞则终止。CFM和
+End2Race基准使用MPPI控制的对手以实现稳定的对手预
+测。对于所有其他方法，自我车辆和对手使用相同的规划器。
+
+我们的SGTP实现了最佳的整体性能（表I），具有
+95.24%胜率和100.00% 无碰撞胜率（基于累积Fren b的
+碰撞超越）。它还在预定义的最大试验时长为50秒的情况
+下实现了 Dmean = 49.67s，表明它可以在几乎整个允许
+的时间内持续赛车。此外，我们的SGTP获得了最高的
+FPR 为75.00% 和CSD 为0.99，表明在持续的近距离交互
+后成功超越。同时，它保持了竞争性速度（v̄ego = 5.86
+m/s）和平滑控制（MCS = 0.008）。如图5所示，
+SGTP在长时赛车、获胜能力、超越能力、紧张交互、侵
+略性和运行时效率方面呈现出最平衡的轮廓。它还实时运
+行，具有 CTmean = 0.095s（表I）。与其他基准相比，
+只有EVO‑MPCC和IBR‑MPC实现了相对较高的胜率，分
+别为92.86%和85.71%。然而，这两种方法都不能在长时
+间的赛车过程中维持激烈的竞争交互。此外，它们的规划
+过程既耗时又不稳定。具体来说，EVO‑MPCC和
+IBR‑MPC的 CTmean 值为0.860秒和1.903秒，而相应的
+CTstd 值为0.646秒和1.043秒，这使得这些方法
+
+6
+
+t7
+
+t8
+
+t8
+
+t3
+
+(c) Ego Opportunistic
+Overtake
+
+t4
+
+t3
+
+Successful ego
+overtake
+
+t8
+
+t4
+
+(b) Zoom-in:
+Opponent 1
+Defensive Blocking
+
+t4
+
+t8
+
+t8
+
+t2
+
+t5
+
+t2
+t2
+
+t1
+
+t2
+
+t5
+
+Successful ego
+overtake
+
+t1
+t1
+
+t1
+
+Track : Brands Hatch
+
+Ego
+
+Ego Trajectory
+
+Opponent1
+
+Opponent1
+Trajectory
+
+Opponent2
+
+Opponent2
+Trajectory
+
+Reference Line
+
+t1
+
+Boundary
+
+Track : f-shape
+
+Drivable
+Area
+
+transitions between them in highly interactive scenarios on
+cing behaviors, including trailing and wheel-to-wheel contesting,
+se-range interactions. Videos are available on the project webpage.
+
+t3
+
+t4
+t4
+
+t1
+
+(c) 自我 机会主义
+超车
+
+t3
+
+自我成功
+超车
+
+(b) 放大：
+对手1
+防御性阻挡
+
+t5
+
+t5
+
+t2
+
+t7
+
+t8
+
+t3
+t2
+t2
+
+6
+
+t3
+t2
+t2
+
+t4
+t5
+
+t1
+
+t2
+
+t5
+
+t2
+
+自我成功
+超车
+
+赛道：Brands Hatch
+
+Ego
+
+自我轨迹
+
+对手1
+
+对手1
+轨迹
+
+对手2
+
+对手2
+轨迹
+
+t1
+t1
+
+t1
+
+参考线
+
+t1
+
+边界
+
+赛道：f形
+
+Ego overtakes Opp1
+
+自我超过对手
+
+对手2与自我距离：𝑠!""# − 𝑠$%&
+
+Ego
+
+Ego
+
+Ego Trails and Closes In (t1-t4)
+Ego Engages Wheel-to-Wheel (t4-t7)
+
+自我超过对手
+
+对手1与自我距离：𝑠! "" ’ − 𝑠$%&
+
+Opp2
+
+Ego Completes
+the Overtake
+(t7-t8)
+
+Fig. 4: Longitudinal gaps and velocity profiles from t1 to t8
+on the Berlin track (Fig. 3, left), where the SGTP-controlled
+ego vehicle overtakes two SGTP-controlled opponents.
+unsuitable for real-time planning in rapidly changing multivehicle racing scenarios. The ablation results verify the importance of our two key modules: game-aware cost and feasibility
+selection. Without the game-aware cost, SGTP w/o GC drops
+to 50.00% Wins and 14.29% CFW, indicating weaker competitive performance. Without the feasibility selection, GA-IBRMPPI achieves only 57.14% Wins and 0.00% CFW, while its
+Dmax is only 5.21s, showing that feasibility selection is critical
+for long-duration competitive racing.
+
+可驾驶
+Area
+
+争等交互行为。视频可在项目网页上找到。
+
+Opp2 vs Ego gap: 𝑠!""# − 𝑠$%&
+
+Opp1
+
+t1
+
+在高度交互场景中，它们之间的过渡包括跟驰和车距竞
+
+Ego overtakes Opp2
+
+Opp1 vs Ego gap: 𝑠!""' − 𝑠$%&
+
+t2
+
+Opp1
+
+Opp2
+
+自我轨迹并逼近 (t1‑t4)
+自我车轮对车轮交战 (t4‑t7)
+
+自我完成
+超车
+(t7‑t8)
+
+图4：从 t1 到 t8在柏林赛道上（图3，左侧），SGTP控
+制的自我车辆超过两个SGTP控制的对手。
+不适用于快速变化的多车辆赛车场景中的实时规划。消融实
+验结果验证了我们两个关键模块的重要性：博弈感知成本和
+可行性选择。没有博弈感知成本，SGTP 无 GC 降至 50.00
+% 胜率和 14.29% 基于累积Fren b的碰撞超越，表明竞争力
+较弱。没有可行性选择，GA‑IBR‑MPPI 仅达到 57.14% 胜
+率和 0.00% 基于累积Fren b的碰撞超越，而其Dmax 仅为
+5.21s，表明可行性选择对于长时竞争性赛车至关重要。
+
+F. Defensive Capability and Robustness to Perturbations
+
+F. 防御能力和对扰动的鲁棒性
+
+Across the 7 tracks in Section IV-B, we sample 15 positions
+per track, yielding 105 trials to evaluate SGTP’s defensive
+
+置，产生105次试验来评估SGTP的防御
+
+跨越7条赛道在第四部分B中，我们每条赛道采样15个位
+
+TABLE I: Quantitative Comparison and Ablation Study of Multi TABLEI：定量比较与消融研究——多车场景下长时竞速中提出
+the Proposed SGTP in Long-duration Competitive Racing and R 的SGTP
+基于进度
+的胜率a ↑
+
+CFW↑
+
+FPRa
+
+长时
+CSDb
+
+格网 [27]
+
+50.00%
+
+0.00%
+
+20.24%
+
+0.23
+
+种族堆叠 [2]
+
+45.24%
+
+5.26%
+
+8.33%
+
+0.20
+
+End2Race [9]
+
+66.67%
+38.10%
+
+0.00%
+0.00%
+
+11.90%
+0.00%
+
+0.05
+0.02
+
+MPPI [22]
+
+4.76%
+2.38%
+92.86%
+
+0.00%
+0.00%
+2.56%
+
+3.57%
+2.38%
+
+0.00
+0.00
+0.08
+
+85.71%
+50.00%
+57.14%
+
+5.56%
+14.29%
+0.00%
+
+10.71%
+28.57%
+19.05%
+
+95.24%
+
+100.00%
+
+75.00%
+
+Long-dur
+Methods
+
+Winsa ↑
+
+CFW↑
+
+FPRa
+
+CSDb
+
+20.24%
+
+0.23
+
+Sampling
+
+Lattice [27]
+
+50.00%
+
+0.00%
+
+FSM
+
+Race Stack [2]
+
+45.24%
+
+5.26%
+
+8.33%
+
+0.20
+
+Learning
+
+End2Race [9]
+CFM [10]
+
+66.67%
+38.10%
+
+0.00%
+0.00%
+
+11.90%
+0.00%
+
+0.05
+0.02
+
+Predictive
+Control
+
+MPPI [22]
+Biased-MPPI [23]
+EVO-MPCC [28]
+
+4.76%
+2.38%
+92.86%
+
+0.00%
+0.00%
+2.56%
+
+3.57%
+2.38%
+8.33%
+
+0.00
+0.00
+0.08
+
+Game
+
+IBR-MPC [20]
+SGTP w/o GC
+GA-IBR-MPPI
+SGTP (ours)
+
+85.71%
+50.00%
+57.14%
+95.24%
+
+5.56%
+14.29%
+0.00%
+100.00%
+
+10.71%
+28.57%
+19.05%
+75.00%
+
+0.07
+0.14
+0.02
+0.99
+
+Bold and underlined values indicate the best and second-best results, respect
+a Wins denotes the progress-based win rate, and CFW denotes the collision-fr
+overtaken by the ego vehicle by the end of a trial based on cumulative Fren
+b CSD measures the mean duration of close-interaction segments. In conju
+interactions are sustained over longer periods.
+c D
+mean and Dmax quantify the durations of sustained racing interaction
+Dmean /(maximum trial time) to represent the race completion ratio. MCS d
+
+Runtime
+Efficiency
+
+Aggressiveness
+
+Long-duration
+Interaction
+Winning
+Ability
+
+Overtaking
+Ability
+
+方法
+采样
+FSM
+学习
+预测
+控制
+
+CFM [10]
+
+Biased‑MPPI [23]
+
+EVO‑MPCC [28]
+IBR‑MPC [20]
+SGTP 无 GC
+
+Game
+
+GA‑IBR‑MPPI
+
+SGTP（我们）
+
+0.07
+0.14
+0.02
+0.99
+
+加粗和下划线值表示最佳和次优结果，respecta Wins 表示基于进度的胜
+率，而CFW 表示试验结束时自我车辆通过累积Fren b CSD 测量接近交
+互段的平均持续时间。在conju交互会持续更长时间。
+c D
+mean 和 Dmax 量化了持续赛车交互的持续时间Dmean /(最大试验时间)，以
+
+表示比赛完成比率。MCSd
+
+运行时
+效率
+
+长时
+交互
+获胜
+能力
+
+超越
+能力
+
+侵略性
+
+Tense Interaction
+
+Fig. 5: Competitive performance & scalability of SGTP. Left p
+metrics of Sec. IV-C. Right plot: SGTP maintains low, consistent
+of vehicles increases, outperforming IBR-MPC [20]. Our webpa
+
+8.33%
+
+紧张交互
+
+图5： SGTP的竞争性能与可扩展性。 左图：第IV‑C节中的p指标。
+右图：随着车辆数量增加，SGTP 保持低且一致的性能，优于
+IBR‑MPC [20]。我们的网页
+
+capability and robustness to prediction perturbations (Table II).
+To evaluate defensive capability, the rearmost vehicle uses
+EVO-MPCC [28], while both opponents use SGTP, and their
+performance is reduced by 10% to complicate the defense.
+Only the EVO-MPCC agent performs the additional final
+response. Despite this advantage, its CFW is only 3.88%,
+demonstrating that SGTP can effectively defend against an
+MPC-based planner without performing the final response.
+
+能力和鲁棒性用于预测扰动（表 II）。为了评估防御能力，
+最末尾的车辆使用EVO‑MPCC [28], ，而两个对手使用
+SGTP，它们的性能降低了10%以使防御复杂化。只有
+EVO‑MPCC代理执行了额外的最终响应。尽管有这个优
+
+We next evaluate SGTP using perturbed opponent-trajectory
+predictions generated by the perturbation model in [30]. In this
+evaluation, the two opponents and the ego vehicle (starting
+from behind) are controlled by SGTP. Under mild perturbations, Dmean decreases by only 0.52%, while CSD decreases
+by 55.88%, indicating more conservative interactions. This
+results from the safety cost and feasibility selection, which
+penalize or reject candidates with insufficient clearance. Under
+severe perturbations, CSD and Dmean decrease by 63.86% and
+4.41%, respectively. Nevertheless, SGTP maintains a CFW of
+94.12%, demonstrating its capability to avoid collisions even
+with noisy opponents’ predictions.
+
+接下来，我们使用扰动模型在 [30] 中生成的扰动对
+手轨迹预测来评估 SGTP。在此评估中，两个对手和自我
+车辆（从后面开始）由 SGTP 控制。在轻微扰动下，
+
+势，它的CFW只有3.88%，表明SGTP可以有效地防御基
+于MPC的规划器，而无需执行最终响应。
+
+Dmean 仅降低了 0.52%，而 CSD 降低了 55.88%，表明
+交互更加保守。这是由于安全成本和可行性选择，它们会
+惩罚或拒绝空间不足的候选方案。在严重扰动下，CSD 和
+Dmean 分别降低了 63.86% 和 4.41%。尽管如此，
+SGTP 仍保持了 94.12% 的 CFW，展示了其即使面对噪
+声的对手预测也能避免碰撞的能力。
+
+7
+
+ulti-Vehicle Racing Planners, Demonstrating the Effectiveness of
+d Real-Time Planning.
+
+7
+
+多车辆竞速规划器，展示实时规划的有效性。
+
+Real-Time Efficiency ↓
+
+‑持续时间 竞争性能 ↑
+
+Db
+
+c
+Dmean
+
+c
+Dratio
+
+c
+Dmax
+
+v̄ego
+
+MCSc ↓
+
+CTmean
+
+CTstd
+
+CTmax
+
+Db
+
+c
+Dmean
+
+Dc
+
+c
+Dmax
+
+v̄ego
+
+MCSc ↓
+
+CTmean
+
+CTstd
+
+CTmax
+
+3
+
+16.73
+
+33.46%
+
+44.02 5.75
+
+0.928
+
+0.415
+
+0.072
+
+0.560
+
+3
+
+16.73
+
+33.46%
+
+44.02 5.75
+
+0.928
+
+0.415
+
+0.072
+
+0.560
+
+-duration Competitive Performance ↑
+
+比率
+
+实时效率 ↓
+
+0
+
+14.51
+
+29.02%
+
+50
+
+4.90
+
+0.037
+
+-
+
+-
+
+-
+
+0
+
+14.51
+
+29.02%
+
+50
+
+4.90
+
+0.037
+
+-
+
+-
+
+-
+
+5
+2
+
+2.84
+14.78
+
+5.69%
+29.55%
+
+4.48
+50
+
+4.02
+4.63
+
+0.002
+0.120
+
+0.003
+0.127
+
+3.9e-4
+0.012
+
+0.004
+0.141
+
+5
+2
+
+2.84
+14.78
+
+5.69%
+29.55%
+
+4.48
+50
+
+4.02
+4.63
+
+0.002
+0.120
+
+0.003
+0.127
+
+3.9e‑4
+
+0.012
+
+0.004
+0.141
+
+0
+0
+8
+
+1.60
+1.36
+10.58
+
+3.20%
+2.73%
+21.17%
+
+5.15
+2.7
+50
+
+2.16
+1.90
+7.23
+
+0.004
+0.002
+0.011
+
+0.041
+0.095
+0.860
+
+0.001
+0.005
+0.646
+
+0.042
+0.099
+3.743
+
+0
+0
+8
+
+1.60
+1.36
+10.58
+
+3.20%
+
+5.15
+2.7
+50
+
+2.16
+1.90
+7.23
+
+0.004
+0.002
+0.011
+
+0.041
+0.095
+0.860
+
+0.001
+0.005
+0.646
+
+0.042
+0.099
+3.743
+
+7
+4
+2
+9
+
+12.46
+20.10
+2.22
+49.67
+
+24.91%
+40.20%
+4.44%
+99.35%
+
+50
+50
+5.21
+50
+
+7.32
+4.87
+2.86
+5.86
+
+0.012
+0.006
+0.007
+0.008
+
+1.903
+0.116
+0.078
+0.095
+
+1.043
+0.006
+0.003
+0.004
+
+4.153
+0.123
+0.084
+0.102
+
+7
+4
+2
+9
+
+12.46
+20.10
+2.22
+49.67
+
+50
+50
+5.21
+50
+
+7.32
+4.87
+2.86
+5.86
+
+0.012
+0.006
+0.007
+0.008
+
+1.903
+0.116
+0.078
+0.095
+
+1.043
+0.006
+0.003
+0.004
+
+4.153
+0.123
+0.084
+0.102
+
+pectively; shading highlights SGTP. ↑/↓ denote higher/lower is better.
+on-free win rate. FPR denotes the Final Pass Ratio, i.e., the fraction of opponents
+renet progress. Higher values are better for all three metrics.
+onjunction with Dmean , a larger CSD indicates that high-intensity close-range
+tions, with larger values indicating longer interactions. Dratio is computed as
+S denotes the mean control smoothness.
+
+2.73%
+
+21.17%
+24.91%
+40.20%
+4.44%
+99.35%
+
+分别；阴影突出显示SGTP。 ↑/↓表示更好/更差。在无干扰获胜率方面。
+FPR 表示最终传球比率，即对手重新获得进球权（net progress）的比例。这
+三个指标中，数值越高越好。与 Dmean结合时，更大的CSD表明高强度近距离
+交互，且数值越大表示交互时间越长。 Dratio 的计算方式为S表示平均控制平滑度。
+
+ft图：我们的SGTP在归一化熵计算时间和无碰撞操作之间实现
+ft plot: our SGTP achieves the best balance across the normalized
+ent computation times and collision-free operation as the number 了最佳平衡，随着bpage数量的增加，展示了最多包含10个智能体
+bpage shows videos with up to 10 agents.
+的视频。
+
+TABLE II: SGTP’s capability to defend & block (first row) and
+robustness to opponents’ prediction uncertainty (last 3 rows).
+Methods
+
+Dmean
+
+∆Dmean
+
+CSD
+
+∆CSD
+
+CFW
+
+EVO-MPCC vs SGTP
+SGTP w/o noise
+SGTP mild noise
+SGTP severe noise
+
+12.00
+49.08
+48.82
+46.91
+
+-0.52%
+-4.41%
+
+0.06
+1.01
+0.44
+0.36
+
+-55.88%
+-63.86%
+
+3.88%
+96.12%
+97.14%
+94.12%
+
+∆Dmean , (%) and ∆CSD, (%) are computed relative to the corresponding values for SGTP w/o noise. The mild and severe settings use
+(σlon , σlat ) = (0.03, 0.015) and (0.08, 0.04), respectively.
+
+表II：SGTP防御与拦截能力（第一行）以及对手预测不确定
+性下的鲁棒性（最后三行）。
+方法
+EVO‑MPCC vs SGTP
+
+SGTP 无噪声
+SGTP 轻微噪声
+SGTP 严重噪声
+
+Dmean
+
+∆Dmean
+
+CSD
+
+∆CSD
+
+12.00
+49.08
+48.82
+46.91
+
+-
+
+0.06
+1.01
+0.44
+0.36
+
+-
+
+‑0.52%
+‑4.41%
+
+‑55.88%
+‑63.86%
+
+CFW
+3.88%
+
+96.12%
+97.14%
+94.12%
+
+∆Dmean，(%)和 ∆CSD，(%)是相对于SGTP无噪声时的对应值计算的。轻
+度设置和严重设置分别使用(σlon， σlat) = (0.03， 0.015)和(0.08，0.04)。
+
+G. Scalability Analysis Across Vehicle Counts
+
+G. 跨车辆数量可扩展性分析
+
+We now assess the scalability of SGTP as the number of
+interacting vehicles increases. On the Brands Hatch track,
+we vary the number of vehicles from 2 to 10, and each
+trial lasts 11s. As shown in Fig. 5, SGTP maintains low
+and stable computational time with small variance, while
+remaining collision-free across all vehicle counts. In contrast,
+IBR-MPC exhibits rapidly increasing computational time and
+greater variance, with collisions occurring in denser scenarios.
+Overall, SGTP combines IBR reasoning with sampling-based
+
+我们现在评估SGTP的可扩展性，随着交互车辆数量
+的增加。在BrandsHatch 赛道上，我们将车辆数量从2变
+
+ts
+
+化到10，每次试验持续11秒。如图5所示，SGTP保持低且
+稳定的计算时间，方差较小，同时在所有车辆数量下均保
+持无碰撞。相比之下，IBR‑MPC的计算时间迅速增加且
+方差更大，在更密集的场景中会出现碰撞。总体而言，
+SGTP结合了IBR推理与基于采样的
+
+

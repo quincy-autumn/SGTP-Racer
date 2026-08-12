@@ -8,18 +8,19 @@ from players.planner.competitive_planner import run_competitive_players
 
 warnings.filterwarnings("ignore")
 
-def parse_arguments():
+def parse_arguments():#自由变量输入——解析参数——命令行接口参数
     parser = argparse.ArgumentParser(description="Multi-Agent Planner Runner")
-    parser.add_argument("--map_name", type=str, default="Nuerburgring") # default map name, all maps are in `config/data_split_final.yaml`
+    parser.add_argument("--map_name", type=str, default="Nuerburgring") # default map name, all maps are in `config/data_split_final.yaml`地图选择
 
-    parser.add_argument("--mppi_bias_mode_ego", type=str, default="none", choices=["none", "ancillary"]) # for biased-mppi
-    parser.add_argument("--mppi_bias_mode_opp", type=str, default="none", choices=["none", "ancillary"],) # for biased-mppi
+    parser.add_argument("--mppi_bias_mode_ego", type=str, default="none", choices=["none", "ancillary"]) # for biased-mppi主车mppi偏置模式
+    parser.add_argument("--mppi_bias_mode_opp", type=str, default="none", choices=["none", "ancillary"],) # for biased-mppi对手策略
 
-    parser.add_argument("--ego_idx", type=int, default=1100) # Start index of the ego vehicle
-    parser.add_argument("--num_agents", type=int, default=3) # Number of agents in the simulation
-    parser.add_argument("--sim_duration", type=float, default=1.0) # Duration of the simulation in seconds
-    parser.add_argument("--save_video", type=bool, default=True) # Whether to save the simulation video
-    parser.add_argument("--interval_idx", type=int, default=20) # Interval index for vehicles gap
+    parser.add_argument("--ego_idx", type=int, default=1100) # Start index of the ego vehicle主车初始位置
+    parser.add_argument("--num_agents", type=int, default=3) # Number of agents in the simulation车辆数量
+    parser.add_argument("--sim_duration", type=float, default=1.0) # Duration of the simulation in seconds持续时间
+    parser.add_argument("--save_video", type=bool, default=True) # Whether to save the simulation video是否保存视频
+    parser.add_argument("--interval_idx", type=int, default=20) # Interval index for vehicles gap间隔步长
+
 
     return parser.parse_args()
 
@@ -48,7 +49,7 @@ def merge_args_with_config(args, cfg):
     args.wheel_base = cfg["wheel_base"]
     args.length = cfg["length"]
     args.width = cfg["width"]
-    args.planner_family = cfg["planner_family"]
+    args.planner_family = cfg["planner_family"] #MPPI
 
     args.v_max = cfg["v_max"]
     args.a_max = cfg["a_max"]
@@ -64,18 +65,19 @@ def merge_args_with_config(args, cfg):
 
 
 def main():
-    args = parse_arguments()
-    cfg = load_yaml_config("players/config/run_config.yaml")
-    args = merge_args_with_config(args, cfg)
+    args = parse_arguments()#先读取命令行
+    cfg = load_yaml_config("players/config/run_config.yaml")#再读取yaml
+    args = merge_args_with_config(args, cfg)#合并命令行
     args.method = f"{args.planner_family}_{args.interaction_mode}"
+    #拼接方法名
 
     if args.end2race:
         args.save_video = False
 
-    start_time = time.perf_counter()
-    metrics = run_competitive_players(args, return_metrics=True)
-    wall_time = time.perf_counter() - start_time
-    print(f"[INFO] Run completed in {wall_time:.2f} seconds")
+    start_time = time.perf_counter()#开始计时
+    metrics = run_competitive_players(args, return_metrics=True)#核心调用函数
+    wall_time = time.perf_counter() - start_time#计算实际耗时
+    print(f"[INFO] Run completed in {wall_time:.2f} seconds")#显示实际耗时
 
 
 if __name__ == "__main__":
